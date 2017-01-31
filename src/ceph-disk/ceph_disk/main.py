@@ -4632,6 +4632,54 @@ def main_trigger(args):
         LOG.debug(err)
 
 
+def main_fix(args):
+    # A hash table containing 'path': ('uid', 'gid')
+    fix_table = {
+        '/var/lib/ceph/': ('ceph', 'ceph'),
+    }
+
+    # all/selinux/permissions are exclusive by the parser definition
+    if args.all:
+        for directory in fix_table:
+            out, err, ret = command(
+                [
+                    'find',
+                    directory,
+                    '-exec',
+                    'chown',
+                    ':'.join(fix_table[directory]),
+                    '{}',
+                    '+',
+                    '-exec',
+                    'restorecon',
+                        '{}',
+                    '+',
+                ]
+            )
+
+    if args.selinux:
+        for directory in fix_table:
+            out, err, ret = command(
+                [
+                    'restorecon',
+                    '-R',
+                    directory
+                ]
+            )
+
+    if args.permissions:
+        for directory in fix_table:
+            out, err, ret = command(
+                [
+                    'chown',
+                    '-R',
+                    ':'.join(fix_table[directory]),
+                    directory
+                ]
+            )
+    print(args)
+
+
 def setup_statedir(dir):
     # XXX The following use of globals makes linting
     # really hard. Global state in Python is iffy and
@@ -4729,9 +4777,43 @@ def parse_args(argv):
     make_destroy_parser(subparsers)
     make_zap_parser(subparsers)
     make_trigger_parser(subparsers)
+    make_fix_parser(subparsers)
 
     args = parser.parse_args(argv)
     return args
+
+
+def make_fix_parser(subparsers):
+    fix_parser = subparsers.add_parser(
+        'fix',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=textwrap.fill(textwrap.dedent("""\
+        """)),
+        help='fix SELinux labells and/or file permissions')
+    fix_group = fix_parser.add_mutually_exclusive_group()
+
+    fix_group.add_argument(
+        '--selinux', '-s',
+        action='store_true',
+        default=False,
+        help='fix SELinux labells for ceph data'
+    )
+    fix_group.add_argument(
+        '--permissions', '-p',
+        action='store_true',
+        default=False,
+        help='fix file permissions for ceph data'
+    )
+    fix_group.add_argument(
+        '--all', '-a',
+        action='store_true',
+        default=False,
+        help='fix file permissions for ceph data'
+    )
+    fix_parser.set_defaults(
+        func=main_fix,
+    )
+    return fix_parser
 
 
 def make_trigger_parser(subparsers):
