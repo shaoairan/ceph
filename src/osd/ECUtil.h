@@ -96,6 +96,12 @@ int decode(
   map<int, bufferlist> &to_decode,
   map<int, bufferlist*> &out);
 
+int repair(
+  const stripe_info_t &sinfo,
+  ErasureCodeInterfaceRef &ec_impl,
+  map<int, bufferlist> &to_decode,
+  map<int, bufferlist*> &out);
+
 int encode(
   const stripe_info_t &sinfo,
   ErasureCodeInterfaceRef &ec_impl,

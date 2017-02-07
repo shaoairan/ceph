@@ -106,6 +106,18 @@ using ceph::crypto::SHA1;
 #define XATTR_NO_SPILL_OUT "0"
 #define XATTR_SPILL_OUT "1"
 
+/*static int pow_int(int a, int x){
+  int power = 1;
+
+  while (x)
+    {
+      if (x & 1)power *= a;
+      x /= 2;
+      a *= a;
+    }
+  return power;
+}*/
+
 //Initial features in new superblock.
 static CompatSet get_fs_initial_compat_set() {
   CompatSet::FeatureSet ceph_osd_feature_compat;
@@ -3048,6 +3060,303 @@ int FileStore::stat(
     tracepoint(objectstore, stat_exit, r);
     return r;
   }
+}
+
+
+/*void FileStore::get_sub_stripe_ids(unsigned int rep_sub_stripes, unsigned int num_coding_chunks, int8_t lost_node_id, vector<int> &sub_stripe_ids)
+{
+  int x = lost_node_id%num_coding_chunks;
+  int y = lost_node_id/num_coding_chunks;
+
+   
+  dout(10) << __func__ << " lost_node_id:" << lost_node_id << " lost_x=" << x << " lost_y=" << y << dendl;
+  int m_pow_y = pow_int((int)num_coding_chunks, y); 
+  dout(10) << __func__ << " m_pow_y:" <<m_pow_y << dendl;
+  for(int i = 0; i < (int)rep_sub_stripes; i++)
+  {
+    sub_stripe_ids.push_back( (i - i%m_pow_y)*num_coding_chunks + i%m_pow_y + x*m_pow_y);
+    dout(10) << __func__ << " pushed sub_stripe index:" << sub_stripe_ids[i] << dendl;
+  }
+}*/
+
+void FileStore:: group_repair_nodes_ind(map<int,int> &repair_sub_chunks_ind, set<pair<int,int> > &repair_node_grps) {
+      set<int> temp;
+      
+      for(map<int,int>:: iterator r = repair_sub_chunks_ind.begin(); r!= repair_sub_chunks_ind.end();r++) {
+	temp.insert(r->second);
+      }
+      int start = -1;
+      int end =  -1 ;
+      for(set<int>::iterator r = temp.begin(); r!= temp.end();r++) {
+	if(start == -1) {
+	    start = *r;
+	    end = *r;
+	}
+	else if(*r == end+1) {
+	    end = *r;
+	}
+	else {
+	    repair_node_grps.insert(make_pair(start,end));
+	    start = *r;
+	    end = *r;
+	}
+      }
+      if(start != -1) {
+	  repair_node_grps.insert(make_pair(start,end));
+      }
+	
+}    
+
+/* 
+int FileStore::read(
+  const coll_t& _cid,
+  const ghobject_t& lost_oid,
+  uint64_t offset,
+  size_t len,
+  ceph::bufferlist& bl,
+  uint64_t chunk_size,
+  int sub_chunk_cnt,
+  map<int,int> &repair_sub_chunks_ind,
+  uint32_t op_flags, 
+  bool allow_eio) {
+    
+        int got=0;
+        int got_total=0;
+
+        assert(chunk_size%sub_chunk_cnt == 0);
+	unsigned int sub_chunk_size = chunk_size/sub_chunk_cnt;
+	dout(10) << "filestore::read " << "**************************** Entered Filestore ****************************** " << dendl;
+	dout(10) << " chunk size : " << chunk_size << dendl;
+	dout(10) << "sub chunk cnt : " << sub_chunk_cnt << dendl;
+	for(map<int,int>::iterator r = repair_sub_chunks_ind.begin(); r!= repair_sub_chunks_ind.end();r++) {
+		dout(10) << " repair sub chunk index: " << r->first << r->second  << dendl;
+	} // remove this after testing
+
+        FDRef fd;
+    	const coll_t& cid = !_need_temp_object_collection(_cid, lost_oid) ? _cid : _cid.get_temp();
+	int r = lfn_open(cid, lost_oid, false, &fd);
+        if (r < 0) {
+            dout(10) << "FileStore::read(" << cid << "/" << lost_oid << ") open error: "
+             << cpp_strerror(r) << dendl;
+            return r;
+        }
+	size_t file_len=0;
+	struct stat st;
+    	memset(&st, 0, sizeof(struct stat));
+    	r = ::fstat(**fd, &st);
+    	assert(r == 0);
+	file_len = st.st_size;
+	if(len ==0)
+		len = file_len;
+	len = min(len, file_len);
+
+        lfn_close(fd);
+
+
+
+	int expected_len = (len*repair_sub_chunks_ind.size())/sub_chunk_cnt; // ceil? should len be divisible by sub_chunk_no
+
+	bufferlist temp_bl;
+	temp_bl.clear();
+
+        dout(10) << __func__ << " alpha:" << sub_chunk_cnt << " sub_chunk_size:" << sub_chunk_size  << dendl;
+        dout(10) << __func__ << " len:" << len << " chunk_size:" << chunk_size << " expected_repair_len:" << expected_len << dendl;
+        
+
+        char *final_str = (char*)malloc((expected_len+1)*sizeof(char));
+        memset(final_str, 0, expected_len+1);
+
+        set<pair<int, int> > repair_node_grps;
+	group_repair_nodes_ind(repair_sub_chunks_ind, repair_node_grps);
+	for(set<pair<int,int> > ::iterator r = repair_node_grps.begin();r!= repair_node_grps.end();r++) {
+		dout(10) << " group : " << (*r).first << "  " << (*r).second << dendl;
+	}
+        int num_chunks = len/chunk_size;
+
+        dout(10) << " reading "<< num_chunks <<" chunks"<< dendl;
+        for(int chunk_iter = 0; chunk_iter < num_chunks; chunk_iter++) {
+	  int sub_chunks_read =0;
+          dout(10) << __func__ << " offset:" << offset << " chunk_no:" << chunk_iter << dendl;
+          for(set<pair<int,int> >::iterator r= repair_node_grps.begin();
+                                r != repair_node_grps.end(); r++){
+          //for(map<int,int>::iterator r= repair_sub_chunks_ind.begin();
+          //                      r != repair_sub_chunks_ind.end(); ++r){
+		 int len_to_read = ((*r).second-(*r).first + 1)*sub_chunk_size;
+                 //int len_to_read = sub_chunk_size;
+                 int current_sub_chunk_offset = (int)offset + chunk_iter*(int)chunk_size + sub_chunk_size*((*r).first);
+                 //int current_sub_chunk_offset = (int)offset + chunk_iter*(int)chunk_size + sub_chunk_size*((*r).second);
+
+                 int str_offset = chunk_iter*(int)sub_chunk_size*(int)repair_sub_chunks_ind.size() + (sub_chunks_read)*sub_chunk_size;
+		 
+                 dout(10) << __func__ << " Current sub_chunk_offset: " << current_sub_chunk_offset << " str_offset: " << str_offset << dendl;
+		 dout(10) << __func__ << "len to read " << len_to_read << dendl;
+		 got = read(_cid, lost_oid, current_sub_chunk_offset, 
+                            len_to_read,temp_bl, op_flags, allow_eio);
+		 if(got >=0) {
+			got_total += got;
+                        dout(10) << __func__ << " copying to final_Str at offset:" << str_offset << dendl;
+			strncpy(final_str+str_offset, temp_bl.c_str(), min(got,(int)len_to_read));
+			dout(10) << __func__ << " got:" << got << " length: "<< strlen(temp_bl.c_str()) << dendl;
+                        //dout(10) << __func__ << " final_str length:"<< strlen(final_str) <<dendl;
+			
+		 }
+		 else {
+    			dout(10) << "FileStore::read(" << _cid << "/" << lost_oid << ") read error: " << cpp_strerror(got) << dendl;
+			return got;
+		}
+                sub_chunks_read += (*r).second - (*r).first + 1;
+		dout(10) << " sub_chunks_read " << sub_chunks_read << dendl;
+                //sub_chunks_read += 1;
+          }
+
+	}
+        bufferptr bptr(expected_len);
+        strncpy(bptr.c_str(), final_str, expected_len);
+        bptr.set_length(got_total);
+
+        bl.clear();
+        bl.push_back(std::move(bptr));
+
+         free(final_str);
+	dout(10) << bl.c_str() << " Buffer final " << dendl;
+	//bl.rebuild();
+        dout(10) << __func__ << " length of the bufferlist buffer: " << strlen(bl.c_str()) << " got_total:" << got_total << " expected_len:" << expected_len << dendl;
+        assert(got_total == expected_len);
+	return got_total;
+	
+}*/
+
+int FileStore::read(
+  const coll_t& _cid,
+  const ghobject_t& lost_oid,
+  uint64_t offset,
+  size_t len,
+  ceph::bufferlist& bl,
+  uint64_t chunk_size,
+  int sub_chunk_cnt,
+  map<int,int> &repair_sub_chunks_ind,
+  uint32_t op_flags, 
+  bool allow_eio) 
+{
+  int got=0;
+  int got_total=0;
+
+  assert(chunk_size%sub_chunk_cnt == 0);
+
+  unsigned int sub_chunk_size = chunk_size/sub_chunk_cnt;
+  //dout(10) << __func__ << " chunk size:" << chunk_size << " sub chunk cnt :" << sub_chunk_cnt << dendl;
+
+  FDRef fd;
+  const coll_t& cid = !_need_temp_object_collection(_cid, lost_oid) ? _cid : _cid.get_temp();
+  int r = lfn_open(cid, lost_oid, false, &fd);
+  if (r < 0) {
+    dout(10) << "FileStore::read(" << cid << "/" << lost_oid << ") open error: "
+             << cpp_strerror(r) << dendl;
+    return r;
+  }
+
+  size_t file_len=0;
+  struct stat st;
+  memset(&st, 0, sizeof(struct stat));
+  r = ::fstat(**fd, &st);
+  assert(r == 0);
+  file_len = st.st_size;
+  if(len ==0)
+	len = file_len;
+
+  len = min(len, file_len);
+
+  int expected_len = (len*repair_sub_chunks_ind.size())/sub_chunk_cnt; // ceil? should len be divisible by sub_chunk_no
+
+  //dout(10) << __func__ << " alpha:" << sub_chunk_cnt << " sub_chunk_size:" << sub_chunk_size  << dendl;
+  //dout(10) << __func__ << " len:" << len << " chunk_size:" << chunk_size << " expected_repair_len:" << expected_len << dendl;
+        
+  bufferptr bptr(expected_len);
+
+  char *final_str = bptr.c_str();
+  memset(final_str, 0, expected_len*sizeof(char));
+
+  set<pair<int, int> > repair_node_grps;
+  group_repair_nodes_ind(repair_sub_chunks_ind, repair_node_grps);
+  /*for(set<pair<int,int> > ::iterator r = repair_node_grps.begin();r!= repair_node_grps.end();r++) {
+		dout(10) << " group : " << (*r).first << "  " << (*r).second << dendl;
+  }*/
+  int num_chunks = len/chunk_size;
+
+  //dout(10) << " reading "<< num_chunks <<" chunks"<< dendl;
+  for(int chunk_iter = 0; chunk_iter < num_chunks; chunk_iter++) {
+    int sub_chunks_read =0;
+    //dout(10) << __func__ << " offset:" << offset << " chunk_no:" << chunk_iter << dendl;
+    for(set<pair<int,int> >::iterator r= repair_node_grps.begin();
+                                r != repair_node_grps.end(); r++){
+      int len_to_read = ((*r).second-(*r).first + 1)*sub_chunk_size;
+      int current_sub_chunk_offset = (int)offset + chunk_iter*(int)chunk_size + sub_chunk_size*((*r).first);
+      int str_offset = chunk_iter*(int)sub_chunk_size*(int)repair_sub_chunks_ind.size() + (sub_chunks_read)*sub_chunk_size;
+		 
+      //dout(10) << __func__ << " Current sub_chunk_offset: " << current_sub_chunk_offset << " str_offset: " << str_offset << dendl;
+      //dout(10) << __func__ << "len to read " << len_to_read << dendl;
+
+
+      #ifdef HAVE_POSIX_FADVISE
+        if (op_flags & CEPH_OSD_OP_FLAG_FADVISE_RANDOM)
+          posix_fadvise(**fd, current_sub_chunk_offset, len_to_read, POSIX_FADV_RANDOM);
+        if (op_flags & CEPH_OSD_OP_FLAG_FADVISE_SEQUENTIAL)
+          posix_fadvise(**fd, current_sub_chunk_offset, len_to_read, POSIX_FADV_SEQUENTIAL);
+      #endif
+
+      //got = safe_pread(**fd, final_str+str_offset, len_to_read, current_sub_chunk_offset);
+      got = safe_pread(**fd, final_str+got_total, len_to_read, current_sub_chunk_offset);
+      if (got < 0) {
+        dout(10) << "FileStore::read(" << cid << "/" << lost_oid << ") pread error: " << cpp_strerror(got) << dendl;
+        lfn_close(fd);
+        if (!(allow_eio || !m_filestore_fail_eio || got != -EIO)) {
+          derr << "FileStore::read(" << cid << "/" << lost_oid << ") pread error: " << cpp_strerror(got) << dendl;
+          assert(0 == "eio on pread");
+        }
+        return got;
+      }
+      got_total = got_total + got;
+
+      #ifdef HAVE_POSIX_FADVISE
+        if (op_flags & CEPH_OSD_OP_FLAG_FADVISE_DONTNEED)
+          posix_fadvise(**fd, current_sub_chunk_offset, len_to_read, POSIX_FADV_DONTNEED);
+        if (op_flags & (CEPH_OSD_OP_FLAG_FADVISE_RANDOM | CEPH_OSD_OP_FLAG_FADVISE_SEQUENTIAL))
+          posix_fadvise(**fd, current_sub_chunk_offset, len_to_read, POSIX_FADV_NORMAL);
+      #endif
+
+      if (m_filestore_sloppy_crc && (!replaying || backend->can_checkpoint())) {
+        dout(0) << __func__ << "ERROR: supposed to do crc check, you are skipping it" << dendl;
+        //ostringstream ss;
+        //int errors = backend->_crc_verify_read(**fd, current_sub_chunk_offset, got, bl, &ss);
+        //if (errors != 0) {
+        //  dout(0) << "FileStore::read " << cid << "/" << oid << " " << offset << "~"
+	//          << got << " ... BAD CRC:\n" << ss.str() << dendl;
+        //  assert(0 == "bad crc on read");
+        //}
+      }
+
+      dout(10) << "FileStore::read " << cid << "/" << lost_oid << " " << offset << "~"
+	       << got << "/" << len << dendl;
+
+      if (g_conf->filestore_debug_inject_read_err &&
+          debug_data_eio(lost_oid)) {
+        return -EIO;
+      } else {
+        tracepoint(objectstore, read_exit, got);
+      }
+
+      sub_chunks_read += (*r).second - (*r).first + 1;
+      //dout(10) << " sub_chunks_read " << sub_chunks_read << dendl;
+    }
+  }
+        
+  bptr.set_length(got_total);
+  bl.clear();
+  bl.push_back(std::move(bptr));
+
+  dout(10) << __func__ << " got_total:" << got_total << " expected_len:" << expected_len << dendl;
+  //assert(got_total == expected_len);
+  return got_total;
 }
 
 int FileStore::read(

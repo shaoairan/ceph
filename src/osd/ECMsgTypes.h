@@ -100,6 +100,11 @@ WRITE_CLASS_ENCODER(ECSubWriteReply)
 struct ECSubRead {
   pg_shard_t from;
   ceph_tid_t tid;
+  map<hobject_t, bool, hobject_t::BitwiseComparator> is_repair;
+  map<hobject_t, set<int>, hobject_t::BitwiseComparator> repair_lost_nodes;
+  map<hobject_t, set<int>, hobject_t::BitwiseComparator> repair_helper_nodes;
+  //map<hobject_t, pair<bool, int8_t>, hobject_t::BitwiseComparator> repair;
+  map<hobject_t, int, hobject_t::BitwiseComparator> helper_shard_ids;
   map<hobject_t, list<boost::tuple<uint64_t, uint64_t, uint32_t> >, hobject_t::BitwiseComparator> to_read;
   set<hobject_t, hobject_t::BitwiseComparator> attrs_to_read;
   void encode(bufferlist &bl, uint64_t features) const;

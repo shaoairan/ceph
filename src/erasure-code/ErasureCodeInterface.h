@@ -249,6 +249,10 @@ namespace ceph {
      */
     virtual unsigned int get_coding_chunk_count() const = 0;
 
+    virtual unsigned int get_sub_chunk_count() = 0;
+
+    virtual int get_repair_sub_chunk_count(const set<int> &want_to_read)=0;
+
     /**
      * Return the size (in bytes) of a single chunk created by a call
      * to the **decode** method. The returned size multiplied by
@@ -263,10 +267,11 @@ namespace ceph {
      * The byte found at offset **B** of the original object is mapped
      * to chunk **B / get_chunk_size()** at offset **B % get_chunk_size()**.
      *
-     * @param [in] object_size the number of bytes of the object to **encode()**
+     *x @param [in] object_size the number of bytes of the object to **encode()**
      * @return the size (in bytes) of a single chunk created by **encode()**
      */
     virtual unsigned int get_chunk_size(unsigned int object_size) const = 0;
+    //virtual unsigned int get_sub_chunk_size(unsigned int chunk_size) const;
 
     /**
      * Compute the smallest subset of **available** chunks that needs
@@ -316,6 +321,22 @@ namespace ceph {
                                             const map<int, int> &available,
                                             set<int> *minimum) = 0;
 
+    virtual int is_repair(const set<int> &want_to_read,
+                       const set<int> &available_chunks)=0;
+
+    
+    virtual void get_repair_subchunks(const set<int> &to_repair,
+                                   const set<int> &helper_chunks,
+                                   int helper_chunk_ind,
+                                   map<int, int> &repair_sub_chunks_ind)=0;
+
+    virtual int minimum_to_repair(const set<int> &want_to_read,
+                                  const set<int> &available_chunks,
+                                  set<int> *minimum) = 0;
+
+    virtual int repair(const set<int> &want_to_read,
+                       const map<int, bufferlist> &chunks,
+                       map<int, bufferlist> *repaired)=0;
     /**
      * Encode the content of **in** and store the result in
      * **encoded**. All buffers pointed to by **encoded** have the

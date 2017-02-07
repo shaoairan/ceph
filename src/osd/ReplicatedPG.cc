@@ -101,6 +101,7 @@ void ReplicatedPG::OpContext::start_async_reads(ReplicatedPG *pg)
     new OnReadComplete(pg, this), pg->get_pool().fast_read);
   pending_async_reads.clear();
 }
+
 void ReplicatedPG::OpContext::finish_read(ReplicatedPG *pg)
 {
   assert(inflightreads > 0);
@@ -1443,12 +1444,14 @@ void ReplicatedPG::do_request(
   if (!is_peered()) {
     // Delay unless PGBackend says it's ok
     if (pgbackend->can_handle_while_inactive(op)) {
+      dout(10) << __func__ << "handle_message while pg inactive" << dendl;
       bool handled = pgbackend->handle_message(op);
       assert(handled);
       return;
     } else {
       waiting_for_peered.push_back(op);
       op->mark_delayed("waiting for peered");
+      dout(10) << __func__ << "pg inactive delaying operation" << dendl;
       return;
     }
   }

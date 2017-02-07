@@ -20,6 +20,32 @@
 #include "ECUtil.h"
 #include "os/ObjectStore.h"
 
+#include "common/debug.h"
+#include <errno.h>
+#include <algorithm>
+#include <ostream>
+
+#include "common/strtol.h"
+#include "include/buffer.h"
+#include "osd/osd_types.h"
+
+#include <ctype.h>
+#include <sstream>
+#include "include/memory.h"
+#include "common/Formatter.h"
+#include "common/safe_io.h"
+#define dout_subsys ceph_subsys_osd
+#undef dout_prefix
+#define dout_prefix _prefix(_dout)
+
+
+static ostream& _prefix(std::ostream* _dout)
+{
+  return *_dout << "ECTransaction: ";
+}
+
+
+
 struct AppendObjectsGenerator: public boost::static_visitor<void> {
   set<hobject_t, hobject_t::BitwiseComparator> *out;
   explicit AppendObjectsGenerator(set<hobject_t, hobject_t::BitwiseComparator> *out) : out(out) {}
@@ -143,9 +169,28 @@ struct TransGenerator : public boost::static_visitor<void> {
 	sinfo.get_stripe_width() -
 	((offset + bl.length()) % sinfo.get_stripe_width()));
     assert(bl.length() - op.bl.length() < sinfo.get_stripe_width());
+  char buffer[30];
+  struct timeval tv;
+
+  time_t curtime;
+
+
+
+  gettimeofday(&tv, NULL);
+  curtime=tv.tv_sec;
+
+  strftime(buffer,30,"%F  %T.",localtime(&curtime));
+
+    dout(2) << "ZZZZZZZZZZZZZZZZZZZZZZZZZZ-Started-Encoding " << op.oid  << " " << (clock()*1.0)/(CLOCKS_PER_SEC / 1000) << " " << buffer << tv.tv_usec  << " ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZz" << dendl;
+ 
     int r = ECUtil::encode(
       sinfo, ecimpl, bl, want, &buffers);
+	gettimeofday(&tv, NULL);
+  curtime=tv.tv_sec;
 
+  strftime(buffer,30,"%F  %T.",localtime(&curtime));
+
+    dout(2) << "ZZZZZZZZZZZZZZZZZZZZZZZZZZ-Finished-Encoding " << op.oid  << " " << (clock()*1.0)/(CLOCKS_PER_SEC / 1000) << " " << buffer << tv.tv_usec  << " ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZz" << dendl;
     hinfo->append(
       sinfo.aligned_logical_offset_to_chunk_offset(op.off),
       buffers);

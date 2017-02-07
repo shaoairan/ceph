@@ -46,17 +46,36 @@ namespace ceph {
       return _profile;
     }
 
+    virtual unsigned int get_sub_chunk_count() {
+      return 1;
+    }
+
     int sanity_check_k(int k, ostream *ss);
 
     virtual unsigned int get_coding_chunk_count() const {
       return get_chunk_count() - get_data_chunk_count();
     }
 
+    virtual int get_repair_sub_chunk_count(const set<int> &want_to_read){
+      return 1;
+    }
+
+    //virtual unsigned int get_sub_chunk_size(unsigned int chunk_size) const {
+    //  return chunk_size;  // fix
+    //}
     virtual int minimum_to_decode(const set<int> &want_to_read,
                                   const set<int> &available_chunks,
                                   set<int> *minimum);
 
     virtual int minimum_to_decode_with_cost(const set<int> &want_to_read,
+                                            const map<int, int> &available,
+                                            set<int> *minimum);
+
+    virtual int minimum_to_repair(const set<int> &want_to_read, 
+                                  const set<int> &available_chunks, 
+                                  set<int> *minimum);
+
+    virtual int minimum_to_repair_with_cost(const set<int> &want_to_read,
                                             const map<int, int> &available,
                                             set<int> *minimum);
 
@@ -73,6 +92,19 @@ namespace ceph {
     virtual int decode(const set<int> &want_to_read,
                        const map<int, bufferlist> &chunks,
                        map<int, bufferlist> *decoded);
+
+    virtual int is_repair(const set<int> &want_to_read,
+                       const set<int> &available_chunks);
+
+    
+    virtual void get_repair_subchunks(const set<int> &to_repair,
+                                   const set<int> &helper_chunks,
+                                   int helper_chunk_ind,
+                                   map<int, int> &repair_sub_chunks_ind);
+
+    virtual int repair(const set<int> &want_to_read,
+                       const map<int, bufferlist> &chunks,
+                       map<int, bufferlist> *repaired);
 
     virtual int decode_chunks(const set<int> &want_to_read,
                               const map<int, bufferlist> &chunks,

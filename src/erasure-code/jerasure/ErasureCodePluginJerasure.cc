@@ -1,4 +1,4 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*- 
+// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 // vim: ts=8 sw=2 smarttab
 /*
  * Ceph distributed storage system
@@ -12,7 +12,7 @@
  *  modify it under the terms of the GNU Lesser General Public
  *  License as published by the Free Software Foundation; either
  *  version 2.1 of the License, or (at your option) any later version.
- * 
+ *
  */
 
 #include "ceph_ver.h"
@@ -53,15 +53,17 @@ public:
       interface = new ErasureCodeJerasureBlaumRoth();
     } else if (t == "liber8tion") {
       interface = new ErasureCodeJerasureLiber8tion();
-    } else {
+    } else if(t == "cl_msr"){
+       interface = new ErasureCodeJerasureCLMSR();
+    }else {
       derr << "technique=" << t << " is not a valid coding technique. "
 	   << " Choose one of the following: "
 	   << "reed_sol_van, reed_sol_r6_op, cauchy_orig, "
-	   << "cauchy_good, liberation, blaum_roth, liber8tion"
+	   << "cauchy_good, liberation, blaum_roth, liber8tion, cl_msr"
 	   << dendl;
       return -ENOENT;
     }
-    dout(20) << __func__ << ": " << profile << dendl;
+    dout(10) << __func__ << ": " << profile << dendl;
     int r = interface->init(profile, ss);
     if (r) {
       delete interface;

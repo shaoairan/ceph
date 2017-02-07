@@ -155,6 +155,20 @@ ostream &operator<<(ostream &lhs, const ECBackend::RecoveryOp &rhs)
 	     << ")";
 }
 
+/*static bool check_profile_is_msr(ErasureCodeInterfaceRef ec_impl)
+{
+  ErasureCodeProfile ec_profile = ec_impl->get_profile();
+  std::string t;
+  //dout(10) << __func__ << dendl;
+  if (ec_profile.find("technique") != ec_profile.end())
+      t = ec_profile.find("technique")->second;
+
+  if(t=="cl_msr") return true;
+  else return false;
+   
+}
+*/
+
 void ECBackend::RecoveryOp::dump(Formatter *f) const
 {
   f->dump_stream("hoid") << hoid;
@@ -214,10 +228,11 @@ struct OnRecoveryReadComplete :
 struct RecoveryMessages {
   map<hobject_t,
       ECBackend::read_request_t, hobject_t::BitwiseComparator> reads;
+ 
   void read(
     ECBackend *ec,
     const hobject_t &hoid, uint64_t off, uint64_t len,
-    const set<pg_shard_t> &need,
+    const set<pg_shard_t> &need, 
     bool attrs) {
     list<boost::tuple<uint64_t, uint64_t, uint32_t> > to_read;
     to_read.push_back(boost::make_tuple(off, len, 0));
@@ -358,14 +373,49 @@ void ECBackend::handle_recovery_read_complete(
        ++i) {
     target[*i] = &(op.returned_data[*i]);
   }
+  set<int> helper_nodes;
   map<int, bufferlist> from;
   for(map<pg_shard_t, bufferlist>::iterator i = to_read.get<2>().begin();
       i != to_read.get<2>().end();
       ++i) {
     from[i->first.shard].claim(i->second);
+    helper_nodes.insert((int)i->first.shard);
   }
-  dout(10) << __func__ << ": " << from << dendl;
-  int r = ECUtil::decode(sinfo, ec_impl, from, target);
+  //dout(10) << __func__ << ": " << from << dendl;
+  int r;
+  //bool is_cl_msr = check_profile_is_msr(ec_impl);
+  //dout(10) << __func__ << " is_cl_msr:" << is_cl_msr << " chunk.size():"<<from.size()<<dendl;
+  //dout(10) << __func__ << " need_to_decode"<< target.size() << "nodes" << dendl;
+  
+  
+  set<int> want_to_read(op.missing_on_shards.begin(), op.missing_on_shards.end());
+
+  bool is_repair = ec_impl->is_repair(want_to_read, helper_nodes);
+  char buffer[30];
+  struct timeval tv;
+
+  time_t curtime;
+
+
+
+  gettimeofday(&tv, NULL); 
+  curtime=tv.tv_sec;
+
+  strftime(buffer,30,"%F  %T.",localtime(&curtime));
+  
+    dout(3) << "ZZZZZZZZZZZZZZZZZZZZZZZZZZ-Started-Repairing/Decoding " << hoid  << " " << (clock()*1.0)/(CLOCKS_PER_SEC / 1000) << " " << buffer << tv.tv_usec  << " ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZz" << dendl; 
+  if(is_repair){
+    r = ECUtil::repair(sinfo, ec_impl, from, target);
+  } else {
+    r = ECUtil::decode(sinfo, ec_impl, from, target);
+  }
+    gettimeofday(&tv, NULL);
+   curtime=tv.tv_sec;
+
+   strftime(buffer,30,"%F  %T.",localtime(&curtime));
+
+   dout(3) << "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ-Finished-Repairing/Decoding " << hoid << " " << (clock()*1.0)/(CLOCKS_PER_SEC / 1000)  << " " << buffer  << tv.tv_usec << " ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZzzz" << dendl;
+
   assert(r == 0);
   if (attrs) {
     op.xattrs.swap(*attrs);
@@ -470,7 +520,7 @@ void ECBackend::dispatch_recovery_messages(RecoveryMessages &m, int priority)
 	    get_parent()->get_epoch(),
 	    replies)));
     get_parent()->queue_transaction(std::move(m.t));
-  } 
+  }
 
   if (m.reads.empty())
     return;
@@ -506,6 +556,7 @@ void ECBackend::continue_recovery_op(
 	recovery_ops.erase(op.hoid);
 	return;
       }
+   
       m->read(
 	this,
 	op.hoid,
@@ -575,6 +626,19 @@ void ECBackend::continue_recovery_op(
       return;
     }
     case RecoveryOp::WRITING: {
+	char buffer[30];
+      struct timeval tv;
+
+      time_t curtime;
+
+
+
+      gettimeofday(&tv, NULL);
+      curtime=tv.tv_sec;
+
+      strftime(buffer,30,"%F  %T.",localtime(&curtime));
+
+      dout(3) << "ZZZZZZZZZZZZZZZZZZZZZZZZZZ-continue-recovery-op " << op.hoid  << " " << (clock()*1.0)/(CLOCKS_PER_SEC / 1000) << " " << buffer << tv.tv_usec  << " ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZz" << dendl;
       if (op.waiting_on_pushes.empty()) {
 	if (op.recovery_progress.data_complete) {
 	  op.state = RecoveryOp::COMPLETE;
@@ -598,6 +662,12 @@ void ECBackend::continue_recovery_op(
 	  get_parent()->on_global_recover(op.hoid, stat);
 	  dout(10) << __func__ << ": WRITING return " << op << dendl;
 	  recovery_ops.erase(op.hoid);
+           gettimeofday(&tv, NULL);
+	      curtime=tv.tv_sec;
+
+      	      strftime(buffer,30,"%F  %T.",localtime(&curtime));
+
+      	      dout(3) << "ZZZZZZZZZZZZZZZZZZZZZZZZZZ-finished-recovering-all-objects " << (clock()*1.0)/(CLOCKS_PER_SEC / 1000) << " " << buffer << tv.tv_usec  << " ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZz" << dendl;
 	  return;
 	} else {
 	  op.state = RecoveryOp::IDLE;
@@ -620,11 +690,28 @@ void ECBackend::run_recovery_op(
   RecoveryHandle *_h,
   int priority)
 {
+   char buffer[30];
+  struct timeval tv;
+
+  time_t curtime;
+	
   ECRecoveryHandle *h = static_cast<ECRecoveryHandle*>(_h);
   RecoveryMessages m;
+  gettimeofday(&tv, NULL);
+  curtime=tv.tv_sec;
+
+  strftime(buffer,30,"%F  %T.",localtime(&curtime));
+
+  dout(3) << "ZZZZZZZZZZZZZZZZZZZZZZZZZZ-started-recovering-all-objects " << (clock()*1.0)/(CLOCKS_PER_SEC / 1000) << " " << buffer << tv.tv_usec  << " ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZz" << dendl;
   for (list<RecoveryOp>::iterator i = h->ops.begin();
        i != h->ops.end();
        ++i) {
+    gettimeofday(&tv, NULL);
+    curtime=tv.tv_sec;
+
+    strftime(buffer,30,"%F  %T.",localtime(&curtime));
+
+    dout(3) << "ZZZZZZZZZZZZZZZZZZZZZZZZZZ-run-recovery-op " << i->hoid  << " " << (clock()*1.0)/(CLOCKS_PER_SEC / 1000) << " " << buffer << tv.tv_usec  << " ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZz" << dendl;
     dout(10) << __func__ << ": starting " << *i << dendl;
     assert(!recovery_ops.count(i->hoid));
     RecoveryOp &op = recovery_ops.insert(make_pair(i->hoid, *i)).first->second;
@@ -893,28 +980,63 @@ void ECBackend::handle_sub_read(
   ECSubReadReply *reply)
 {
   shard_id_t shard = get_parent()->whoami_shard().shard;
+  char buffer[30];
+   struct timeval tv;
+
+   time_t curtime;
+ 
   for(map<hobject_t, list<boost::tuple<uint64_t, uint64_t, uint32_t> >, hobject_t::BitwiseComparator>::iterator i =
         op.to_read.begin();
       i != op.to_read.end();
       ++i) {
     int r = 0;
     ECUtil::HashInfoRef hinfo = get_hash_info(i->first);
+    map<int,int> repair_sub_chunks_ind;
+
     if (!hinfo) {
       r = -EIO;
       get_parent()->clog_error() << __func__ << ": No hinfo for " << i->first << "\n";
       dout(5) << __func__ << ": No hinfo for " << i->first << dendl;
       goto error;
     }
+    
+    if(op.is_repair[i->first]) {
+       //need to give helper(shard id) index instead of 0
+       ec_impl->get_repair_subchunks(op.repair_lost_nodes[i->first], 
+                                     op.repair_helper_nodes[i->first], 
+                                     op.helper_shard_ids[i->first],repair_sub_chunks_ind);
+    }
+     gettimeofday(&tv, NULL);
+     curtime=tv.tv_sec;
+
+     strftime(buffer,30,"%F  %T.",localtime(&curtime));
+
+    dout(3) << "ZZZZZZZZZZZZZZZZZZZZZZZZZZ-handle_sub_read-started-reading-object:  " << i->first  << " " << (clock()*1.0)/(CLOCKS_PER_SEC / 1000) << " " << buffer << tv.tv_usec  << " ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZz" << dendl;
     for (list<boost::tuple<uint64_t, uint64_t, uint32_t> >::iterator j =
 	   i->second.begin(); j != i->second.end(); ++j) {
       bufferlist bl;
-      r = store->read(
-	ch,
-	ghobject_t(i->first, ghobject_t::NO_GEN, shard),
-	j->get<0>(),
-	j->get<1>(),
-	bl, j->get<2>(),
-	true); // Allow EIO return
+
+      dout(20) << __func__ << ": calling object store"<< store << dendl;
+      if(op.is_repair[i->first]) {
+        r = store->read(
+	  ch,
+	  ghobject_t(i->first, ghobject_t::NO_GEN, shard),
+	  j->get<0>(),
+	  j->get<1>(),
+	  bl, sinfo.get_chunk_size(), 
+          ec_impl->get_sub_chunk_count(),
+          repair_sub_chunks_ind, 
+          j->get<2>(),
+	  true);
+      } else {
+        r = store->read(
+	  ch,
+	  ghobject_t(i->first, ghobject_t::NO_GEN, shard),
+	  j->get<0>(),
+	  j->get<1>(),
+	  bl, j->get<2>(),
+	  true); // Allow EIO return
+      }
       if (r < 0) {
 	get_parent()->clog_error() << __func__
 				   << ": Error " << r
@@ -936,22 +1058,34 @@ void ECBackend::handle_sub_read(
       // are read in sections, so the digest check here won't be done here.
       // Do NOT check osd_read_eio_on_bad_digest here.  We need to report
       // the state of our chunk in case other chunks could substitute.
-      if ((bl.length() == hinfo->get_total_chunk_size()) &&
-	  (j->get<0>() == 0)) {
-	dout(20) << __func__ << ": Checking hash of " << i->first << dendl;
-	bufferhash h(-1);
-	h << bl;
-	if (h.digest() != hinfo->get_chunk_hash(shard)) {
-	  get_parent()->clog_error() << __func__ << ": Bad hash for " << i->first << " digest 0x"
-	          << hex << h.digest() << " expected 0x" << hinfo->get_chunk_hash(shard) << dec << "\n";
-	  dout(5) << __func__ << ": Bad hash for " << i->first << " digest 0x"
-	          << hex << h.digest() << " expected 0x" << hinfo->get_chunk_hash(shard) << dec << dendl;
-	  r = -EIO;
-	  goto error;
-	}
+      
+        //if( ((is_fragmented_read && (bl.length() == hinfo->get_total_chunk_size()/ec_impl->get_coding_chunk_count()) ) || 
+        //        (bl.length() == hinfo->get_total_chunk_size()) ) && (j->get<0>() == 0)) {
+          if( (bl.length() == hinfo->get_total_chunk_size())  && (j->get<0>() == 0) ) {
+            dout(20) << __func__ << ": Checking hash of " << i->first << dendl;
+	    bufferhash h(-1);
+	    h << bl;
+	    if (h.digest() != hinfo->get_chunk_hash(shard)) {
+	      get_parent()->clog_error() << __func__ << ": Bad hash for " << i->first << " digest 0x"
+	              << hex << h.digest() << " expected 0x" << hinfo->get_chunk_hash(shard) << dec << "\n";
+	      dout(5) << __func__ << ": Bad hash for " << i->first << " digest 0x"
+	              << hex << h.digest() << " expected 0x" << hinfo->get_chunk_hash(shard) << dec << dendl;
+	      r = -EIO;
+	      goto error;
+
+        }
       }
+
     }
+     gettimeofday(&tv, NULL);
+     curtime=tv.tv_sec;
+
+     strftime(buffer,30,"%F  %T.",localtime(&curtime));
+
+    dout(3) << "ZZZZZZZZZZZZZZZZZZZZZZZZZZ-handle_sub_read-finished-reading-object:  " << i->first  << " " << (clock()*1.0)/(CLOCKS_PER_SEC / 1000) << " " << buffer << tv.tv_usec  << " ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZz" << dendl;
+
     continue;
+
 error:
     // Do NOT check osd_read_eio_on_bad_digest here.  We need to report
     // the state of our chunk in case other chunks could substitute.
@@ -1031,8 +1165,8 @@ void ECBackend::handle_sub_read_reply(
     for (list<pair<uint64_t, bufferlist> >::iterator j = i->second.begin();
 	 j != i->second.end();
 	 ++j, ++req_iter, ++riter) {
-      assert(req_iter != rop.to_read.find(i->first)->second.to_read.end());
-      assert(riter != rop.complete[i->first].returned.end());
+      assert(req_iter != rop.to_read.find(i->first)->second.to_read.end());  
+      assert(riter != rop.complete[i->first].returned.end()); 
       pair<uint64_t, uint64_t> adjusted =
 	sinfo.aligned_offset_len_to_chunk(
 	  make_pair(req_iter->get<0>(), req_iter->get<1>()));
@@ -1235,7 +1369,7 @@ void ECBackend::filter_read_op(
 void ECBackend::check_recovery_sources(const OSDMapRef osdmap)
 {
   set<ceph_tid_t> tids_to_filter;
-  for (map<pg_shard_t, set<ceph_tid_t> >::iterator 
+  for (map<pg_shard_t, set<ceph_tid_t> >::iterator
        i = shard_to_read_map.begin();
        i != shard_to_read_map.end();
        ) {
@@ -1371,7 +1505,7 @@ void ECBackend::submit_transaction(
   op->tid = tid;
   op->reqid = reqid;
   op->client_op = client_op;
-  
+
   op->t.reset(static_cast<ECTransaction*>(_t.release()));
 
   set<hobject_t, hobject_t::BitwiseComparator> need_hinfos;
@@ -1486,13 +1620,36 @@ int ECBackend::get_min_avail_to_read_shards(
   }
 
   set<int> need;
-  int r = ec_impl->minimum_to_decode(want, have, &need);
-  if (r < 0)
+  dout(10) << __func__ << " have size:" << have.size() << " want size:" << want.size() << " n:"<< ec_impl->get_chunk_count() << dendl;
+  int r;
+  //bool is_cl_msr = check_profile_is_msr(ec_impl);
+  
+  //ErasureCodeProfile ec_profile = ec_impl->get_profile();
+  //std::string t;
+  //  dout(10)<<__func__ <<"got the profile" <<dendl;
+  //dout(10) << __func__ << dendl;
+  //if (ec_profile.find("technique") != ec_profile.end())
+  //    t = ec_profile.find("technique")->second;
+  //dout(10)<<__func__<<"got the technique: " <<t<< dendl;
+   
+  //bool is_cl_msr = (t=="cl_msr") ? true : false ;
+  bool is_repair = ec_impl->is_repair(want, have);
+  
+  if( is_repair){
+    dout(20) << __func__ << ": Yippie :) This case qualifies for repair" << dendl;
+    r = ec_impl->minimum_to_repair(want, have, &need);
+  } else {
+    dout(20) << __func__ << ": :( This case does not qualify for repair" << dendl;
+    r = ec_impl->minimum_to_decode(want, have, &need);
+  }
+  if (r < 0){
+    dout(5) << __func__ << ": minimum to decode/repair failed" << dendl;
     return r;
+  }
 
   if (do_redundant_reads) {
       need.swap(have);
-  } 
+  }
 
   if (!to_read)
     return 0;
@@ -1566,10 +1723,46 @@ void ECBackend::start_read_op(
   for (map<hobject_t, read_request_t, hobject_t::BitwiseComparator>::iterator i = op.to_read.begin();
        i != op.to_read.end();
        ++i) {
+
     list<boost::tuple<
       uint64_t, uint64_t, map<pg_shard_t, bufferlist> > > &reslist =
       op.complete[i->first].returned;
+
     bool need_attrs = i->second.want_attrs;
+
+    
+    //bool should_repair = (rec_op.missing_on_shards.size()==1) ? (true): (false);
+    //shard_id_t lost_node_id = (should_repair) ? *(rec_op.missing_on_shards.begin()) : shard_id_t(); // always check should_repair
+    //dout(10) << __func__<< " should_repair: "<<should_repair << " lost_node_id"<< lost_node_id <<dendl;
+
+    //this set is passed as input.
+    
+    //set<int> helper_nodes;//(i->second.need.size());
+    //helper_nodes.reserve(i->second.need.size());
+    set<int> helper_nodes;
+    bool is_repair = false;
+
+    if(for_recovery) {
+      assert(recovery_ops.count(i->first));
+      RecoveryOp &rec_op = recovery_ops[i->first];
+
+      //dout(10) << "start_read_op for recovery operation: " << rec_op << dendl;
+      set<int> want_to_read(rec_op.missing_on_shards.begin(), rec_op.missing_on_shards.end());
+
+      for(set<pg_shard_t>::const_iterator j = i->second.need.begin();
+          j != i->second.need.end(); ++j) {
+        //dout(10) << "shard id " << j->shard << " to be inserted in " << helper_nodes << dendl;
+        helper_nodes.insert(j->shard);
+
+        messages[*j].repair_lost_nodes[i->first] = want_to_read;
+        messages[*j].helper_shard_ids[i->first] = (int)j->shard;
+      }
+   
+      //dout(10) << "calling is_repair function with inputs" << want_to_read << " and " << helper_nodes << dendl;
+      is_repair = ec_impl->is_repair(want_to_read, helper_nodes);
+      //dout(10) << "is_repair is returned as " << is_repair << dendl;
+    }
+
     for (set<pg_shard_t>::const_iterator j = i->second.need.begin();
 	 j != i->second.need.end();
 	 ++j) {
@@ -1577,6 +1770,14 @@ void ECBackend::start_read_op(
 	messages[*j].attrs_to_read.insert(i->first);
 	need_attrs = false;
       }
+      messages[*j].is_repair[i->first] = is_repair;
+      if(is_repair)messages[*j].repair_helper_nodes[i->first] = helper_nodes;
+      
+      //need to send j->shard as well here to the helper node.
+
+      //messages[*j].repair[i->first] = make_pair(should_repair, lost_node_id.id);
+      //dout(10) << __func__ <<" inserted the pair should_repair:"<< messages[*j].repair[i->first].first << " lost_node_id:"<< messages[*j].repair[i->first].second <<dendl;
+
       op.obj_to_source[i->first].insert(*j);
       op.source_to_obj[*j].insert(i->first);
     }
@@ -1614,9 +1815,18 @@ void ECBackend::start_read_op(
       get_parent()->whoami_spg_t().pgid,
       i->first.shard);
     msg->map_epoch = get_parent()->get_epoch();
-    msg->op = i->second;
+    msg->op = i->second;//saving ecsubread here
     msg->op.from = get_parent()->whoami_shard();
     msg->op.tid = tid;
+    //for(map<hobject_t, pair<bool, int8_t>, hobject_t::BitwiseComparator>::iterator j = msg->op.repair.begin(); 
+      //  j != msg->op.repair.end(); ++j){
+      //dout(10) << __func__ << " object:"<< j->first << " is_repair:" << j->second.first << " lost_node_id:" << j->second.second << dendl;
+    //}    
+    //msg->op.num_coding_chunks= ec_impl->get_coding_chunk_count();
+    //msg->op.num_sub_stripes = ec_impl->get_sub_chunk_count();
+    //msg->op.chunk_size = sinfo.get_chunk_size();
+    //dout(10) << __func__<< " m=" << msg->op.num_coding_chunks<< " alpha=" << msg->op.num_sub_stripes<< " chunk_size:" << msg->op.chunk_size<<dendl;
+
     get_parent()->send_message_osd_cluster(
       i->first.osd,
       msg,
@@ -1948,7 +2158,7 @@ void ECBackend::objects_read_async(
 
   set<int> want_to_read;
   get_want_to_read_shards(&want_to_read);
-    
+
   set<pg_shard_t> shards;
   int r = get_min_avail_to_read_shards(
     hoid,
