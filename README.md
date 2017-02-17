@@ -38,7 +38,7 @@ Gets indices of repair planes.Returns nothing.
 ####Input Parameters:####
 *want_to_read*: Chunk indices to be decoded
 *available_chunks*: Available chunk indices containing valid data
-####Output Parameters####:
+####Output Parameters:####
 *minimum*: Minimum chunk indices required for retrieval of lost chunks
 
 Finds the chunk indices required to repair lost chunk. Returns minimum no of chunk indices required to retrieve lost chunks.
@@ -48,7 +48,7 @@ Finds the chunk indices required to repair lost chunk. Returns minimum no of chu
 ####Input parameters:####
 *want_to_read*: Chunk indexes to be decoded
 *chunks*: Map containing chunk indices mapped to object chunk required to retrieve lost chunk. 
-####Output Parameters####:
+####Output Parameters:####
 *repaired*: Map containing chunk indices mapped to repaired data.
 
 Repairs chunk of lost object using CLMSR algorithm. Returns 0 if repair is successful, 1 otherwise.
@@ -69,7 +69,7 @@ Repairs chunk of lost object using CLMSR algorithm. Returns 0 if repair is succe
 *repair_sub_chunks_ind*: Map containing indices mapped to repair plane indices.
 *op_flags*: 
 *allow_eio*:
-####Output Parameters####:
+####Output Parameters:####
 *bl*: bufferlist to be populated with data read
 Populates bufferlist with chunk of data of length len corresponding to lost object. Returns size of data read if reading was successful else returns -1.
 
