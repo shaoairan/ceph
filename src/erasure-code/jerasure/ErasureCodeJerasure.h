@@ -15,6 +15,119 @@
  *
  */
 
+/* 
+	## CL-MSR implementation
+
+int repair_lost_chunks(map<int,char*> &repaired_data, set<int> &aloof_nodes, map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind)
+
+Input Parameters:
+	aloof_nodes: Set of aloof chunk indices.
+
+	helper_data: Map containing chunk indices mapped to object chunk required to retrieve lost object.
+
+	repair_blocksize: Maximum size of data that can be repaired at a time.
+
+	repair_sub_chunks_ind: Map containing indices mapped to repair plane indices.
+
+Output Parameters:
+
+	repaired_data:
+
+Repairs lost object chunk. Returns 0 if repair is successful else returns -1.
+
+
+
+
+
+void set_planes_sequential_decoding_order(int* order, erasure_t* erasures)
+
+Input Parameters:
+
+	order : Pointer to array to be populated with order of planes. Order of a plane is defined by no of hole dot pairs present in the plane.
+
+	erasures: Array of erasures
+
+
+
+Populates array ‘order’ with order of each plane, ie - order[i] would give the order of the ith plane. Returns nothing.
+
+  
+
+
+
+int is_erasure_type_1(int ind, erasure_t* erasures, int* z_vec)
+
+Input Parameters:
+
+	ind: Index of the node
+
+	erasures: Array of erasure locations
+
+	z_vec: Vector form of plane index
+
+
+
+Checks if erasure is of type 1.Returns 1 if erasure is of Type 1 else returns 0.
+
+
+
+**Note: An erasure can be either of the following 3 types**:
+	Type 0: Is a hole dot pair
+
+	Type 1: Not a hole dot pair and no of hole dot pairs in node’s y column is 0.
+
+	Type 2: Not a hole dot pair but there is atleast 1 hole dot pair in the node’s y column.
+
+void get_plane_vector(int z, int* z_vec)
+
+Input Parameters:
+
+	z: plane index
+
+Output Parameters:
+
+	z_vec: Array to be populated with vector form of plane index.
+
+Gets vector form of plane index.Returns nothing.
+
+
+
+void get_erasure_coordinates( int* erasure_locations, erasure_t* erasures)
+
+Input Parameters:
+
+	erasure_locations: Array containing erasure locations in 1d form.
+
+Output Parameters:
+
+	erasures: Array to be populated with erasure locations in q-t plane.
+
+Populates erasures with coordinates of erasures. Returns nothing.
+
+void get_weight_vector(erasure_t* erasures, int* weight_vec)
+
+Input Parameters:
+
+	erasures: Array of erasures
+
+Output Parameters:
+
+	weight_vec:  Array to be populated with weights of each column.
+
+Populates weight_vec with weights of each column. Weight of a column is defined by the no of erasures in that column. Returns nothing.
+
+
+int get_hamming_weight(int* weight_vec)
+
+Input Parameters:
+
+	weight_vec: Weight vector containing weights of each column
+
+Computes the no of columns with weight is greater than or equal to 1. Returns no of columns with weight greater than or equal to 1.
+
+*/
+
+
 #ifndef CEPH_ERASURE_CODE_JERASURE_H
 #define CEPH_ERASURE_CODE_JERASURE_H
 
