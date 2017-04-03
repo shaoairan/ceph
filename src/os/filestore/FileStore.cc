@@ -3264,6 +3264,153 @@ more:
   return r;
 }
 
+void FileStore:: group_repair_nodes_ind(map<int,int> &repair_sub_chunks_ind, set<pair<int,int> > &repair_node_grps) {
+      set<int> temp;
+      
+      for(map<int,int>:: iterator r = repair_sub_chunks_ind.begin(); r!= repair_sub_chunks_ind.end();r++) {
+	temp.insert(r->second);
+      }
+      int start = -1;
+      int end =  -1 ;
+      for(set<int>::iterator r = temp.begin(); r!= temp.end();r++) {
+	if(start == -1) {
+	    start = *r;
+	    end = *r;
+	}
+	else if(*r == end+1) {
+	    end = *r;
+	}
+	else {
+	    repair_node_grps.insert(make_pair(start,end));
+	    start = *r;
+	    end = *r;
+	}
+      }
+      if(start != -1) {
+	  repair_node_grps.insert(make_pair(start,end));
+      }
+	
+}    
+
+int FileStore::read(
+  const coll_t& _cid,
+  const ghobject_t& lost_oid,
+  uint64_t offset,
+  size_t len,
+  ceph::bufferlist& bl,
+  uint64_t chunk_size,
+  int sub_chunk_cnt,
+  map<int,int> &repair_sub_chunks_ind,
+  uint32_t op_flags, 
+  bool allow_eio) 
+{
+  int got=0;
+  int got_total=0;
+
+  assert(chunk_size%sub_chunk_cnt == 0);
+
+  unsigned int sub_chunk_size = chunk_size/sub_chunk_cnt;
+
+  FDRef fd;
+  const coll_t& cid = !_need_temp_object_collection(_cid, lost_oid) ? _cid : _cid.get_temp();
+  int r = lfn_open(cid, lost_oid, false, &fd);
+  if (r < 0) {
+    dout(10) << "FileStore::read(" << cid << "/" << lost_oid << ") open error: "
+             << cpp_strerror(r) << dendl;
+    return r;
+  }
+
+  size_t file_len=0;
+  struct stat st;
+  memset(&st, 0, sizeof(struct stat));
+  r = ::fstat(**fd, &st);
+  assert(r == 0);
+  file_len = st.st_size;
+  if(len ==0)
+	len = file_len;
+
+  len = min(len, file_len);
+
+  int expected_len = (len*repair_sub_chunks_ind.size())/sub_chunk_cnt; 
+        
+  bufferptr bptr(expected_len);
+
+  char *final_str = bptr.c_str();
+  memset(final_str, 0, expected_len*sizeof(char));
+
+  set<pair<int, int> > repair_node_grps;
+  group_repair_nodes_ind(repair_sub_chunks_ind, repair_node_grps);
+
+  int num_chunks = len/chunk_size;
+
+  for(int chunk_iter = 0; chunk_iter < num_chunks; chunk_iter++) {
+    int sub_chunks_read =0;
+    for(set<pair<int,int> >::iterator r= repair_node_grps.begin();
+                                r != repair_node_grps.end(); r++){
+      int len_to_read = ((*r).second-(*r).first + 1)*sub_chunk_size;
+      int current_sub_chunk_offset = (int)offset + chunk_iter*(int)chunk_size + sub_chunk_size*((*r).first);
+      int str_offset = chunk_iter*(int)sub_chunk_size*(int)repair_sub_chunks_ind.size() + (sub_chunks_read)*sub_chunk_size;
+		 
+      #ifdef HAVE_POSIX_FADVISE
+        if (op_flags & CEPH_OSD_OP_FLAG_FADVISE_RANDOM)
+          posix_fadvise(**fd, current_sub_chunk_offset, len_to_read, POSIX_FADV_RANDOM);
+        if (op_flags & CEPH_OSD_OP_FLAG_FADVISE_SEQUENTIAL)
+          posix_fadvise(**fd, current_sub_chunk_offset, len_to_read, POSIX_FADV_SEQUENTIAL);
+      #endif
+
+      got = safe_pread(**fd, final_str+got_total, len_to_read, current_sub_chunk_offset);
+      if (got < 0) {
+        dout(10) << "FileStore::read(" << cid << "/" << lost_oid << ") pread error: " << cpp_strerror(got) << dendl;
+        lfn_close(fd);
+        if (!(allow_eio || !m_filestore_fail_eio || got != -EIO)) {
+          derr << "FileStore::read(" << cid << "/" << lost_oid << ") pread error: " << cpp_strerror(got) << dendl;
+          assert(0 == "eio on pread");
+        }
+        return got;
+      }
+      got_total = got_total + got;
+
+      #ifdef HAVE_POSIX_FADVISE
+        if (op_flags & CEPH_OSD_OP_FLAG_FADVISE_DONTNEED)
+          posix_fadvise(**fd, current_sub_chunk_offset, len_to_read, POSIX_FADV_DONTNEED);
+        if (op_flags & (CEPH_OSD_OP_FLAG_FADVISE_RANDOM | CEPH_OSD_OP_FLAG_FADVISE_SEQUENTIAL))
+          posix_fadvise(**fd, current_sub_chunk_offset, len_to_read, POSIX_FADV_NORMAL);
+      #endif
+
+      if (m_filestore_sloppy_crc && (!replaying || backend->can_checkpoint())) {
+        dout(0) << __func__ << "ERROR: supposed to do crc check, you are skipping it" << dendl;
+        //ostringstream ss;
+        //int errors = backend->_crc_verify_read(**fd, current_sub_chunk_offset, got, bl, &ss);
+        //if (errors != 0) {
+        //  dout(0) << "FileStore::read " << cid << "/" << oid << " " << offset << "~"
+	//          << got << " ... BAD CRC:\n" << ss.str() << dendl;
+        //  assert(0 == "bad crc on read");
+        //}
+      }
+
+      dout(10) << "FileStore::read " << cid << "/" << lost_oid << " " << offset << "~"
+	       << got << "/" << len << dendl;
+
+      if (g_conf->filestore_debug_inject_read_err &&
+          debug_data_eio(lost_oid)) {
+        return -EIO;
+      } else {
+        tracepoint(objectstore, read_exit, got);
+      }
+
+      sub_chunks_read += (*r).second - (*r).first + 1;
+    }
+  }
+        
+  bptr.set_length(got_total);
+  bl.clear();
+  bl.push_back(std::move(bptr));
+
+  dout(10) << __func__ << " got_total:" << got_total << " expected_len:" << expected_len << dendl;
+  //assert(got_total == expected_len);
+  return got_total;
+}
+
 int FileStore::_do_seek_hole_data(int fd, uint64_t offset, size_t len,
                                   map<uint64_t, uint64_t> *m)
 {

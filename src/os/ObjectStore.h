@@ -1686,7 +1686,35 @@ public:
      bool allow_eio = false) {
      return read(c->get_cid(), oid, offset, len, bl, op_flags, allow_eio);
    }
-
+  virtual int read(
+    const coll_t& _cid,
+    const ghobject_t& lost_oid,
+    uint64_t offset,
+    size_t len,
+    ceph::bufferlist& bl,
+    uint64_t chunk_size,
+    int sub_chunk_cnt,
+    map<int,int> &repair_sub_chunks_ind,
+    uint32_t op_flags, 
+    bool allow_eio){
+    return read(_cid, lost_oid, offset, len, bl, op_flags, allow_eio);
+  }
+    
+  virtual int read(
+    CollectionHandle &c,
+    const ghobject_t& lost_oid,
+    uint64_t offset,
+    size_t len,
+    bufferlist& bl,
+    uint64_t chunk_size,
+    int sub_chunk_cnt,
+    map<int,int> &repair_sub_chunks_ind,
+    uint32_t op_flags=0, 
+    bool allow_eio=false){
+    return read(c->get_cid(), lost_oid, offset, len, bl, chunk_size, 
+                sub_chunk_cnt, repair_sub_chunks_ind,
+                op_flags, allow_eio);
+  }
   /**
    * fiemap -- get extent map of data of an object
    *

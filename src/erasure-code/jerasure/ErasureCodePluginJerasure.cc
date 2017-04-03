@@ -53,11 +53,13 @@ int ErasureCodePluginJerasure::factory(const std::string& directory,
       interface = new ErasureCodeJerasureBlaumRoth();
     } else if (t == "liber8tion") {
       interface = new ErasureCodeJerasureLiber8tion();
+    } else if(t == "cl_msr"){
+       interface = new ErasureCodeJerasureCLMSR();
     } else {
       derr << "technique=" << t << " is not a valid coding technique. "
 	   << " Choose one of the following: "
 	   << "reed_sol_van, reed_sol_r6_op, cauchy_orig, "
-	   << "cauchy_good, liberation, blaum_roth, liber8tion"
+	   << "cauchy_good, liberation, blaum_roth, liber8tion, cl_msr"
 	   << dendl;
       return -ENOENT;
     }

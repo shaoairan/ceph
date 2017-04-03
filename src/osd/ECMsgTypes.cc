@@ -169,6 +169,10 @@ void ECSubRead::encode(bufferlist &bl, uint64_t features) const
     ENCODE_START(1, 1, bl);
     ::encode(from, bl);
     ::encode(tid, bl);
+    ::encode(is_repair, bl);
+    ::encode(repair_lost_nodes, bl);
+    ::encode(repair_helper_nodes, bl);
+    ::encode(helper_shard_ids, bl);
     map<hobject_t, list<pair<uint64_t, uint64_t> >> tmp;
     for (map<hobject_t, list<boost::tuple<uint64_t, uint64_t, uint32_t> >>::const_iterator m = to_read.begin();
 	  m != to_read.end(); ++m) {
@@ -188,6 +192,10 @@ void ECSubRead::encode(bufferlist &bl, uint64_t features) const
   ENCODE_START(2, 2, bl);
   ::encode(from, bl);
   ::encode(tid, bl);
+  ::encode(is_repair, bl);
+  ::encode(repair_lost_nodes, bl);
+  ::encode(repair_helper_nodes, bl);
+  ::encode(helper_shard_ids, bl);
   ::encode(to_read, bl);
   ::encode(attrs_to_read, bl);
   ENCODE_FINISH(bl);
@@ -198,6 +206,10 @@ void ECSubRead::decode(bufferlist::iterator &bl)
   DECODE_START(2, bl);
   ::decode(from, bl);
   ::decode(tid, bl);
+  ::decode(is_repair,bl);
+  ::decode(repair_lost_nodes, bl);
+  ::decode(repair_helper_nodes, bl);
+  ::decode(helper_shard_ids, bl);
   if (struct_v == 1) {
     map<hobject_t, list<pair<uint64_t, uint64_t> >>tmp;
     ::decode(tmp, bl);

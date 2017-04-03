@@ -577,6 +577,19 @@ public:
     bufferlist& bl,
     uint32_t op_flags = 0,
     bool allow_eio = false) override;
+  int read(
+    const coll_t& _cid,
+    const ghobject_t& lost_oid,
+    uint64_t offset,
+    size_t len,
+    ceph::bufferlist& bl,
+    uint64_t chunk_size,
+    int sub_chunk_cnt,
+    map<int,int> &repair_sub_chunks_ind,
+    uint32_t op_flags, 
+    bool allow_eio);
+  void group_repair_nodes_ind(map<int,int> &repair_sub_chunks_ind, 
+                              set<pair<int,int> > &repair_node_grps);
   int _do_fiemap(int fd, uint64_t offset, size_t len,
                  map<uint64_t, uint64_t> *m);
   int _do_seek_hole_data(int fd, uint64_t offset, size_t len,

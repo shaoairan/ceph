@@ -137,6 +137,80 @@ int ECUtil::encode(
   return 0;
 }
 
+int ECUtil::repair(
+  const stripe_info_t &sinfo,
+  ErasureCodeInterfaceRef &ec_impl,
+  map<int, bufferlist> &to_decode,
+  map<int, bufferlist*> &out) {
+
+  assert(to_decode.size());
+
+  set<int> need;
+  for (map<int, bufferlist*>::iterator i = out.begin();
+       i != out.end();
+       ++i) {
+    assert(i->second);
+    assert(i->second->length() == 0);
+    need.insert(i->first);
+  }
+
+
+  int per_chunk_helper_data_size = ec_impl->get_repair_sub_chunk_count(need) * (sinfo.get_chunk_size() / ec_impl->get_sub_chunk_count());
+  
+
+  uint64_t helper_data_size = to_decode.begin()->second.length();
+  //dout(10) << __func__ << " per_chunk_helper_data_size:"<<  per_chunk_helper_data_size << " helper_data_size:"<< helper_data_size << dendl;
+  assert(helper_data_size % per_chunk_helper_data_size == 0);
+
+  for (map<int, bufferlist>::iterator i = to_decode.begin();
+       i != to_decode.end();
+       ++i) {
+    //dout(10) << __func__ << " index:" << i->first << " has length:" << i->second.length() << dendl;
+    assert(i->second.length() == helper_data_size);
+  }
+
+  if (helper_data_size == 0)
+    return 0;
+
+
+
+  //assert(need.size()==1);
+  assert(ec_impl->get_sub_chunk_count() > 1);
+
+  for (uint64_t i = 0; i < helper_data_size; i += per_chunk_helper_data_size) {
+    map<int, bufferlist> chunks;
+    for (map<int, bufferlist>::iterator j = to_decode.begin();
+	 j != to_decode.end();
+	 ++j) {
+      chunks[j->first].substr_of(j->second, i, per_chunk_helper_data_size);
+    }
+    map<int, bufferlist> out_bls;
+    int r;
+    //dout(10) << __func__ << "calling repair" << dendl;
+    r = ec_impl->repair(need, chunks, &out_bls);
+    
+    assert(r == 0);
+    //dout(10) << __func__ << " Yippie came out of cl_msr_repair "<<dendl;
+
+    for (map<int, bufferlist*>::iterator j = out.begin();
+	 j != out.end();
+	 ++j) {
+      assert(out_bls.count(j->first));
+      assert(out_bls[j->first].length() == sinfo.get_chunk_size());
+      j->second->claim_append(out_bls[j->first]);
+    }
+  }
+
+  for (map<int, bufferlist*>::iterator j = out.begin();
+        j != out.end();
+	++j) {
+    assert(j->second->length()%sinfo.get_chunk_size()==0);
+  }
+  
+  //dout(10) << __func__ << " Repair Successful!" <<dendl;
+  return 0;
+}
+
 void ECUtil::HashInfo::append(uint64_t old_size,
 			      map<int, bufferlist> &to_append) {
   assert(old_size == total_chunk_size);

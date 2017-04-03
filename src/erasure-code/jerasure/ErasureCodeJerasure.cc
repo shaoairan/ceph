@@ -19,6 +19,8 @@
 #include "ErasureCodeJerasure.h"
 #include "crush/CrushWrapper.h"
 #include "osd/osd_types.h"
+#include <sstream>
+#include "math.h"
 extern "C" {
 #include "jerasure.h"
 #include "reed_sol.h"
@@ -34,9 +36,23 @@ extern "C" {
 #undef dout_prefix
 #define dout_prefix _prefix(_dout)
 
+#define talloc(type, num) (type *) malloc(sizeof(type)*(num))
+
 static ostream& _prefix(std::ostream* _dout)
 {
   return *_dout << "ErasureCodeJerasure: ";
+}
+
+static int pow_int(int a, int x){
+  int power = 1;
+
+  while (x)
+    {
+      if (x & 1)power *= a;
+      x /= 2;
+      a *= a;
+    }
+  return power;
 }
 
 int ErasureCodeJerasure::create_ruleset(const string &name,
@@ -110,7 +126,7 @@ unsigned int ErasureCodeJerasure::get_chunk_size(unsigned int object_size) const
   } else {
     unsigned tail = object_size % alignment;
     unsigned padded_length = object_size + ( tail ?  ( alignment - tail ) : 0 );
-    assert(padded_length % k == 0);
+    assert(padded_length % (k*sub_chunk_no) == 0);
     return padded_length / k;
   }
 }
@@ -118,10 +134,30 @@ unsigned int ErasureCodeJerasure::get_chunk_size(unsigned int object_size) const
 int ErasureCodeJerasure::encode_chunks(const set<int> &want_to_encode,
 				       map<int, bufferlist> *encoded)
 {
-  char *chunks[k + m];
-  for (int i = 0; i < k + m; i++)
-    chunks[i] = (*encoded)[i].c_str();
-  jerasure_encode(&chunks[0], &chunks[k], (*encoded)[0].length());
+  int chunk_size = (*encoded->begin()).second.length();
+  char *chunks[k + m + nu];
+
+  for (int i = 0; i < k + m; i++){
+    if (i < k) {
+      chunks[i] = (*encoded)[i].c_str();
+    } else {
+    chunks[i+nu] = (*encoded)[i].c_str();
+    }
+  }
+
+  for(int i = k; i < k+nu; i++){
+    //create buffers that will be cleaned later   
+    chunks[i] = (char*) malloc(chunk_size);
+    memset(chunks[i],0, chunk_size);
+  }
+
+  jerasure_encode(&chunks[0], &chunks[k+nu], (*encoded)[0].length());
+
+  //clean the memory allocated for nu shortened chunks
+  for(int i=k ; i < k+nu; i++){
+    free(chunks[i]);
+  }
+
   return 0;
 }
 
@@ -132,11 +168,14 @@ int ErasureCodeJerasure::decode_chunks(const set<int> &want_to_read,
   unsigned blocksize = (*chunks.begin()).second.length();
   int erasures[k + m + 1];
   int erasures_count = 0;
-  char *data[k];
+  char *data[k+nu];
   char *coding[m];
-  for (int i =  0; i < k + m; i++) {
+  for (int i =  0; i < k + m ; i++) {
     if (chunks.find(i) == chunks.end()) {
-      erasures[erasures_count] = i;
+      if(i < k)
+        erasures[erasures_count] = i;
+      else
+        erasures[erasures_count] = i+nu;
       erasures_count++;
     }
     if (i < k)
@@ -144,10 +183,53 @@ int ErasureCodeJerasure::decode_chunks(const set<int> &want_to_read,
     else
       coding[i - k] = (*decoded)[i].c_str();
   }
+
+  for(int i=k; i < k+nu; i++){
+    data[i] = (char*)malloc(blocksize);
+    if(data[i]==NULL){
+      assert(0);
+    }
+    memset(data[i], 0, blocksize);
+  }
+
   erasures[erasures_count] = -1;
 
   assert(erasures_count > 0);
-  return jerasure_decode(erasures, data, coding, blocksize);
+
+  int res = jerasure_decode(erasures, data, coding, blocksize);
+
+  for (int i=k ; i < k+nu; i++){
+    free(data[i]);
+  }
+
+  return res;
+}
+
+int ErasureCodeJerasure::minimum_to_repair(const set<int> &want_to_read,
+                                   const set<int> &available_chunks,
+                                   set<int> *minimum)
+{
+    return ErasureCode::minimum_to_decode(want_to_read, available_chunks, minimum);
+}
+
+int ErasureCodeJerasure::repair(const set<int> &want_to_read,
+                        const map<int, bufferlist> &chunks,
+                        map<int, bufferlist> *repaired)
+{
+    return ErasureCode::repair(want_to_read, chunks, repaired);
+}
+
+int ErasureCodeJerasure::is_repair(const set<int> &want_to_read,
+                                   const set<int> &available_chunks)
+{
+  return 0;
+}
+
+void ErasureCodeJerasure::get_repair_subchunks(const set<int> &to_repair,
+                                   const set<int> &helper_chunks,
+                                   int helper_chunk_ind,
+                                   map<int, int> &repair_sub_chunks_ind){
+return;
 }
 
 bool ErasureCodeJerasure::is_prime(int value)
@@ -512,4 +594,1044 @@ void ErasureCodeJerasureLiber8tion::prepare()
 {
   bitmatrix = liber8tion_coding_bitmatrix(k);
   schedule = jerasure_smart_bitmatrix_to_schedule(k, m, w, bitmatrix);
+}
+
+//
+// ErasureCodeJerasureCLMSR
+//
+
+void ErasureCodeJerasureCLMSR::jerasure_encode(char **data, char **coding, int blocksize)
+{
+
+  if(encode_systematic(data, coding, blocksize) == -1){
+      dout(0) << "error in encode_systematic" << dendl;
+  }
+}
+
+int ErasureCodeJerasureCLMSR::jerasure_decode(int *erasures, char **data,
+                                                             char **coding,
+                                                             int chunksize)
+{
+  int r = decode_layered(erasures, data, coding, chunksize);
+  return r;
+}
+
+unsigned ErasureCodeJerasureCLMSR::get_alignment() const
+{
+  if (per_chunk_alignment) {
+    return w * LARGEST_VECTOR_WORDSIZE;
+  } else {
+    unsigned alignment = k*sub_chunk_no*w*sizeof(int);
+    if ( ((w*sizeof(int))%LARGEST_VECTOR_WORDSIZE) )
+      alignment = k*sub_chunk_no*w*LARGEST_VECTOR_WORDSIZE;
+    return alignment;
+  }
+}
+
+int ErasureCodeJerasureCLMSR::parse(ErasureCodeProfile &profile,
+						     ostream *ss)
+{
+  int err = 0;
+  err |= ErasureCodeJerasure::parse(profile, ss);
+  err |= to_int("d", profile, &d, std::to_string(k+m-1), ss);
+  
+  //*ss << "parse of cl_msr value of d is " << d << std::endl;
+
+  //check for mds block input
+  if (profile.find("mds_type") == profile.end() ||
+      profile.find("mds_type")->second.size() == 0){
+    mds_block = VANDERMONDE_RS;
+    *ss << "mds_type not found in profile" << std::endl;
+  } else {
+    std::string p = profile.find("mds_type")->second;
+    *ss << "recieved mds_type as " << p << std::endl;
+
+    if(p == "reed_sol_van") mds_block = VANDERMONDE_RS;
+    else if(p == "cauchy_mds") mds_block = CAUCHY_MDS;
+    else{
+      mds_block = VANDERMONDE_RS;
+      *ss << "mds_type " << p << "is not currently supported using the default reed_sol_van" << std::endl;
+    }
+
+  }
+   
+  //*ss  << "finished checking mds_type" << std::endl;
+  if (w != 8 ){//&& w != 16 && w != 32) {
+    *ss << "CLMSR: w=" << w
+	<< " must be one of {8, 16, 32} : revert to " << DEFAULT_W << std::endl;
+    profile["w"] = "8";
+    err |= to_int("w", profile, &w, DEFAULT_W, ss);
+    err = -EINVAL;
+    return err;
+  }
+
+
+
+  if ((d < k) || (d > k+m-1)){
+    *ss << "value of d " << d
+	<< " must be within [ " << k << "," << k+m-1 << "]" << std::endl;
+    err = -EINVAL;
+    return err;
+  }
+  q = d-k+1;//this will be m when d=(n-1)=k+m-1
+
+  if( (k+m)%q ){
+    nu = q - (k+m)%q;
+    *ss << "CLMSR: (k+m)%q=" << (k+m)%q
+	 << "q doesn't divide k+m, to use shortening" << std::endl;
+  } else {
+    nu = 0;
+  }
+
+  if(k+m+nu > 254){
+    err = -EINVAL;
+    return err;
+  }
+
+  err |= to_bool("jerasure-per-chunk-alignment", profile,
+		 &per_chunk_alignment, "false", ss);
+  return err;
+}
+
+void ErasureCodeJerasureCLMSR::prepare()
+{
+  dout(10) << __func__ << " k:" << k << " m: " << m << " w:" << w << dendl;
+  
+  //get the value for gamma needed for gamma transform
+  int u;
+  for(u = 2; ; u++){
+    if(galois_single_multiply(u,u,w) != 1){
+      gamma = u;
+      break;
+    }
+  }
+
+  //get the matrix needed based on mds_block;
+  switch(mds_block){
+    case VANDERMONDE_RS:
+      matrix = reed_sol_vandermonde_coding_matrix(k+nu, m, w);
+      break;  
+    case CAUCHY_MDS:
+      matrix = cauchy_original_coding_matrix(k+nu, m, w);
+      break;
+    default:
+      dout(0) << __func__ << "mds_block " << mds_block << " not supported" << dendl;
+      assert(0);
+  }
+
+  t = (k+m+nu)/q;
+  sub_chunk_no = pow_int(q, t);
+  dout(10) << __func__ << " q:" << q << " nu:" << nu << " t:" << t << dendl;
+
+  //create B_buf here
+  B_buf = talloc(char*, q*t);
+  assert(B_buf);
+  for(int i = 0; i < q*t; i++)B_buf[i] = NULL;
+}
+
+
+int ErasureCodeJerasureCLMSR::minimum_to_repair(const set<int> &want_to_read,
+                                   const set<int> &available_chunks,
+                                   set<int> *minimum)
+{
+  int lost_node_index = 0;
+  int rep_node_index = 0;
+
+ 
+  if((available_chunks.size() >= (unsigned)d) && (want_to_read.size() <= (unsigned)k+m-d) ){
+
+    for(set<int>::iterator i=want_to_read.begin();
+        i != want_to_read.end(); ++i){
+        lost_node_index = (*i < k) ? (*i) : (*i+nu);
+      for(int j = 0; j < q; j++){
+        if(j != lost_node_index%q) {
+           rep_node_index = (lost_node_index/q)*q+j;//add all the nodes in lost node's y column.
+           if(rep_node_index < k){
+             assert(want_to_read.find(rep_node_index) == want_to_read.end());
+             minimum->insert(rep_node_index);
+           }
+           else if(rep_node_index >= k+nu){
+             assert(want_to_read.find(rep_node_index-nu) == want_to_read.end());
+             minimum->insert(rep_node_index-nu);
+           }
+        }
+      }
+    }
+    if (includes(
+	available_chunks.begin(), available_chunks.end(), minimum->begin(), minimum->end())) {
+      for(set<int>::iterator i = available_chunks.begin(); 
+          i != available_chunks.end(); ++i){
+        if(minimum->size() < (unsigned)d){
+          if(minimum->find(*i) == minimum->end())minimum->insert(*i);
+        } else break;
+      }
+    } else {
+      dout(0) << "minimum_to_repair: shouldn't have come here" << dendl;
+      assert(0);
+    }
+    
+  } else{
+    dout(0) << "available_chunks: " << available_chunks << " want_to_read:" <<  want_to_read << dendl;
+    assert(0);
+    //return -EIO;
+  }
+  assert(minimum->size() == (unsigned)d);
+
+  return 0;
+}
+
+//this will be called by ECBackend when a helper node needs to know what subchunks to read,
+//the result will be sent as input to filestore read.
+void ErasureCodeJerasureCLMSR::get_repair_subchunks(const set<int> &to_repair,
+                                   const set<int> &helper_chunks,
+                                   int helper_chunk_ind,
+                                   map<int, int> &repair_sub_chunks_ind)
+{
+  int z_vec[t];
+  int count = 0;
+  int repair_sub_chunk_no = 0;
+  int lost_node = 0;
+  
+  for(int z=0; z < sub_chunk_no; z++){
+    get_plane_vector(z, z_vec);
+    count = 0;
+    for(set<int>::iterator i = to_repair.begin(); 
+        i != to_repair.end(); ++i){
+      lost_node = (*i < k) ? (*i) :(*i+nu); 
+      if(z_vec[lost_node/q] == lost_node%q){
+        count++;
+        break;
+      }
+    }
+    if(count > 0) {
+      repair_sub_chunks_ind[repair_sub_chunk_no] = z;
+      repair_sub_chunk_no++;
+    }
+  }
+}
+
+int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
+                                   const set<int> &available_chunks){
+  int lost_node_ind = 0;
+  int rep_node_ind = 0;
+
+  if(includes(
+	available_chunks.begin(), available_chunks.end(), want_to_read.begin(), want_to_read.end()) ) return 0;
+
+  double repair_fraction = 1.0 - pow(1.0 - (1.0/(double)q), (double)want_to_read.size());
+  if ( ( ((double)d-1.0)*repair_fraction) > ((double)k-1.0)){
+    //decode is better in comparison with repair in this case.
+    return 0;
+  } 
+
+
+  if(available_chunks.size() < (unsigned)d) return 0;
+  else if(want_to_read.size() > (unsigned) (k+m-d))return 0;
+  else {
+    for(set<int>::iterator i=want_to_read.begin(); 
+        i != want_to_read.end(); ++i){
+      if(available_chunks.find(*i) != available_chunks.end()) return 0;//if lost index is available.
+      lost_node_ind = (*i < k) ? (*i) : (*i+nu);
+      for(int j=0; j<q; j++){
+        if( j != lost_node_ind%q ) {
+          rep_node_ind = (lost_node_ind/q)*q+j;
+          if(rep_node_ind < k){
+            if(available_chunks.find(rep_node_ind) == available_chunks.end()) return 0;
+          }
+          else if((rep_node_ind >=k) && (rep_node_ind <k+nu))continue;
+          else if(available_chunks.find(rep_node_ind-nu) == available_chunks.end()) return 0;
+        }
+      }
+    }
+  }
+  return 1;
+}
+
+int ErasureCodeJerasureCLMSR::get_repair_sub_chunk_count(const set<int> &want_to_read)
+{
+  return sub_chunk_no - pow_int(q-1, want_to_read.size()) * pow_int(q, t - want_to_read.size());
+}
+
+//for any d <=n-1
+int ErasureCodeJerasureCLMSR::repair(const set<int> &want_to_read,
+                        const map<int, bufferlist> &chunks,
+                        map<int, bufferlist> *repaired)
+{
+  if( ( chunks.size() != (unsigned)d ) || ( want_to_read.size() > (unsigned)k+m-d ) ){
+    dout(0) << __func__ << "chunk size not sufficient for repair"<< dendl;
+    assert(0);
+    return -EIO;
+  }
+
+  int repair_sub_chunk_no = get_repair_sub_chunk_count(want_to_read);
+
+  //if chunks include want_to_read just point repaired to them and return
+ //XXXXXXXXXXXXX ADD THAT PART XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+
+  map<int, int> repair_sub_chunks_ind;
+  get_repair_subchunks(want_to_read, want_to_read, 0, repair_sub_chunks_ind);
+  assert(repair_sub_chunks_ind.size() == (unsigned)repair_sub_chunk_no); 
+
+  unsigned repair_blocksize = (*chunks.begin()).second.length();
+  assert(repair_blocksize%repair_sub_chunk_no == 0);
+
+  unsigned sub_chunksize = repair_blocksize/repair_sub_chunk_no;
+  unsigned chunksize = sub_chunk_no*sub_chunksize;
+
+  //only the lost_node's have chunk_size allocated.
+  map<int, char*> repaired_data;
+  map<int, char*> helper_data;
+  set<int> aloof_nodes;
+  map<int, bufferlist> temp;
+
+  for (int i =  0; i < k + m; i++) {
+    //included helper data only for d+nu nodes.
+    if (chunks.find(i) != chunks.end()) {//i is a helper 
+      temp[i] = chunks.find(i)->second;
+      temp[i].rebuild_aligned(SIMD_ALIGN);
+
+      if(i<k) helper_data[i] = temp[i].c_str();
+      else helper_data[i+nu] = temp[i].c_str();
+
+      
+    } else{
+      if(want_to_read.find(i) == want_to_read.end()){//aloof node case.
+        int aloof_node_id = (i < k) ? i: i+nu;
+        aloof_nodes.insert(aloof_node_id);
+      }else{
+        bufferptr ptr(buffer::create_aligned(chunksize, SIMD_ALIGN));
+      
+        int lost_node_id = (i < k) ? i : i+nu;
+   
+        (*repaired)[i].push_front(ptr);
+        repaired_data[lost_node_id] = (*repaired)[i].c_str();
+        memset(repaired_data[lost_node_id], 0, chunksize);
+      }
+    }
+  }
+
+  //this is for shortened codes i.e., when nu > 0
+  for(int i=k; i < k+nu; i++){
+    helper_data[i] = (char*)malloc(repair_blocksize);
+    if(helper_data[i] == NULL){
+      dout(0) << "memory allocation failed for shortened case" << dendl;
+      assert(0);
+    }
+    memset(helper_data[i], 0, repair_blocksize);
+  }
+
+  assert(helper_data.size()+aloof_nodes.size()+repaired_data.size() == (unsigned) q*t);
+  
+  int r = repair_lost_chunks(repaired_data, aloof_nodes,
+                           helper_data, repair_blocksize, repair_sub_chunks_ind);
+
+  //clear buffers created for the purpose of shortening
+  for(int i = k; i < k+nu; i++){
+    free(helper_data[i]);
+  }
+
+  return r;
+}
+
+int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, set<int> &aloof_nodes,
+                           map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind)
+{
+
+
+
+  unsigned sub_chunksize = repair_blocksize/repair_sub_chunks_ind.size();
+
+  int z_vec[t];
+  map<int, set<int> > ordered_planes;
+  map<int, int> repair_plane_to_ind;
+  int order = 0;
+  int x,y, node_xy, node_sw, z_sw;
+  char *A1, *A2, *B1, *B2;
+  int count_retrieved_sub_chunks = 0;
+  int num_erased = 0;
+
+  for(map<int,int>::iterator i = repair_sub_chunks_ind.begin();
+      i != repair_sub_chunks_ind.end(); ++i){
+    get_plane_vector(i->second, z_vec);
+    order = 0;
+    //check across all erasures
+    for(map<int,char*>::iterator j = repaired_data.begin();
+        j != repaired_data.end(); ++j)
+    {
+      if(j->first%q == z_vec[j->first/q])order++;
+    }
+    assert(order>0);
+    ordered_planes[order].insert(i->second);
+    repair_plane_to_ind[i->second] = i->first;
+  }
+
+  int plane_count = 0;
+  int erasure_locations[q*t];
+
+  //going to use the global B_buf
+  assert(B_buf);
+
+  for(int i = 0; i < q*t; i++){
+    if(B_buf[i]==NULL) B_buf[i] = talloc(char, sub_chunksize*sub_chunk_no);
+    assert(B_buf[i]);
+  } 
+
+  //repair planes in order.
+  for(order=1; ;order++){
+    if(ordered_planes.find(order) == ordered_planes.end())break;
+    else{
+
+      plane_count += ordered_planes[order].size();
+      for(set<int>::iterator z=ordered_planes[order].begin();
+          z != ordered_planes[order].end(); ++z)
+      {
+        get_plane_vector(*z, z_vec);
+
+        num_erased = 0;
+        for(y=0; y < t; y++){
+          for(x = 0; x < q; x++){
+          
+            node_xy = y*q + x;
+            
+            if( (repaired_data.find(node_xy) != repaired_data.end()) || 
+                (aloof_nodes.find(node_xy) != aloof_nodes.end()) ) 
+            {//case of erasure, aloof node can't get a B.
+             erasure_locations[num_erased] = node_xy;
+             num_erased++;
+            } else{//should be in helper data
+              assert(helper_data.find(node_xy) != helper_data.end());
+              //so A1 is available, need to check if A2 is available.
+              A1 = &helper_data[node_xy][repair_plane_to_ind[*z]*sub_chunksize];
+
+              z_sw = (*z) + (x - z_vec[y])*pow_int(q,t-1-y);
+              node_sw = y*q + z_vec[y];
+              //consider this as an erasure, if A2 not found.
+              if(repair_plane_to_ind.find(z_sw) == repair_plane_to_ind.end())
+              {
+                erasure_locations[num_erased] = node_xy;
+                num_erased++;
+              } else {
+                if(repaired_data.find(node_sw) != repaired_data.end()){
+                  assert(z_sw < sub_chunk_no);
+                  A2 = &repaired_data[node_sw][z_sw*sub_chunksize];
+                  get_B1_fromA1A2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, A2,sub_chunksize);
+                } else if(aloof_nodes.find(node_sw) != aloof_nodes.end()){
+                  B2 = &B_buf[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize];
+                  get_B1_fromA1B2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, B2, sub_chunksize);
+                } else{
+
+                  assert(helper_data.find(node_sw) != helper_data.end());
+                  A2 = &helper_data[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize];
+                  if( z_vec[y] != x){
+                    get_B1_fromA1A2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, A2, sub_chunksize);
+                  } else memcpy(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, sub_chunksize);
+                }
+              }             
+   
+            }
+
+            
+          }//y
+        }//x
+        erasure_locations[num_erased] = -1;
+        //we obtained all the needed B's
+        assert(num_erased <= m);
+        jerasure_matrix_decode_substripe(k+nu, m, w, matrix, 0, erasure_locations, &B_buf[0], &B_buf[k+nu], repair_plane_to_ind[*z], sub_chunksize);
+        
+        
+        for(int i = 0; i < num_erased; i++){
+          x = erasure_locations[i]%q;
+          y = erasure_locations[i]/q;
+          node_sw = y*q+z_vec[y];
+          z_sw = (*z) + (x - z_vec[y]) * pow_int(q,t-1-y);
+          
+          B1 = &B_buf[erasure_locations[i]][repair_plane_to_ind[*z]*sub_chunksize];
+
+          //make sure it is not an aloof node before you retrieve repaired_data
+          if( aloof_nodes.find(erasure_locations[i]) == aloof_nodes.end()){
+            if(x == z_vec[y] ){//hole-dot pair
+              A1 = &repaired_data[erasure_locations[i]][*z*sub_chunksize];
+              memcpy(A1, B1, sub_chunksize);
+              count_retrieved_sub_chunks++;
+            } else {
+
+              if(repaired_data.find(erasure_locations[i]) != repaired_data.end() ){//this is a hole (lost node)
+                //A2 for this particular node is available
+                assert(helper_data.find(node_sw) != helper_data.end());
+                assert(repair_plane_to_ind.find(z_sw) !=  repair_plane_to_ind.end());
+                A1 = &repaired_data[erasure_locations[i]][*z*sub_chunksize];
+                A2 = &helper_data[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize];
+                get_type1_A(A1, B1, A2, sub_chunksize);
+                count_retrieved_sub_chunks++;
+              } else {//not a hole and has an erasure in the y-crossection.
+                
+                assert(repaired_data.find(node_sw) != repaired_data.end());
+                if(repair_plane_to_ind.find(z_sw) == repair_plane_to_ind.end()){
+                  //got to recover A2, if z_sw was already there
+                  dout(10) << "recovering A2 of node:" << node_sw << " at location " << z_sw << dendl;
+                  A1 = &helper_data[erasure_locations[i]][repair_plane_to_ind[*z]*sub_chunksize];
+                  A2 = &repaired_data[node_sw][z_sw*sub_chunksize];
+                  get_type2_A(A2, B1, A1, sub_chunksize);
+                  count_retrieved_sub_chunks++;                
+                }
+              }
+
+            }
+          }
+        }
+       
+
+      }
+    }
+  }
+  assert(repair_sub_chunks_ind.size() == (unsigned)plane_count);
+  assert(sub_chunk_no*repaired_data.size() == (unsigned)count_retrieved_sub_chunks);
+
+  return 0;
+}
+
+int ErasureCodeJerasureCLMSR::encode_systematic(char** data_ptrs, char** code_ptrs, int size)
+{
+  int i;
+
+  //Need the chunk size to be aligned to sub_chunk_no
+  assert(size%sub_chunk_no == 0);
+
+  //Now we encode for the nodes k, k+1, ..., k+m-1
+  // This is done by calling the decode function to recover the above m nodes.
+  int erasure_locations[k+m+nu];
+
+  int numerased = 0;
+  for(i=k+nu; i< k+nu+m; i++){
+    erasure_locations[numerased] = i;
+    numerased++;
+  }
+  erasure_locations[numerased] = -1;
+
+  int ret = decode_layered(erasure_locations, data_ptrs, code_ptrs, size);
+  return ret;
+}
+
+int ErasureCodeJerasureCLMSR::decode_layered(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size)
+{
+  int i;
+  char* A1 = NULL;
+  char* A2 = NULL;
+  int x, y;
+  int hm_w;
+  int z, z_sw, node_xy, node_sw;
+  int num_erasures = 0;
+
+  assert(size%sub_chunk_no == 0);
+  int ss_size = size/sub_chunk_no;
+  
+  for(i=0; i < q*t; i++){
+    if(erasure_locations[i]==-1)break;
+    else num_erasures++;
+  }
+
+  if(!num_erasures) assert(0);
+
+  int* erased = jerasure_erasures_to_erased(k+nu,m, erasure_locations);
+  if(erased==NULL) assert(0);
+
+  i = 0;
+
+  //when we see less than m erasures,we assume m erasures and work
+  while((num_erasures < m) && (i < q*t)) {
+      if(erased[i] != 1){     
+        erasure_locations[num_erasures] = i;
+        erased[i] = 1;
+        num_erasures++;
+      }
+      i++;
+  }
+  erasure_locations[num_erasures] = -1;
+
+  assert(num_erasures == m);
+  
+  erasure_t erasures[m];
+  int weight_vec[t];
+
+  get_erasure_coordinates(erasure_locations, erasures);
+  get_weight_vector( erasures, weight_vec);
+
+  int max_weight = get_hamming_weight(weight_vec);
+
+  int order[sub_chunk_no];
+  int z_vec[t];
+
+  assert(B_buf);
+
+  for(i = 0; i < q*t; i++) {
+    if(B_buf[i] == NULL)B_buf[i] = talloc(char, size);    
+    assert(B_buf[i]);
+  } 
+
+  set_planes_sequential_decoding_order( order, erasures);
+
+  for(hm_w = 0; hm_w <= max_weight; hm_w++){
+    for(z = 0; z<sub_chunk_no; z++){
+      if(order[z]==hm_w){
+	decode_erasures(erasure_locations, z, z_vec, data_ptrs, code_ptrs, ss_size, B_buf);
+      }
+    }
+
+    /* Need to get A's from B's*/
+    for(z = 0; z<sub_chunk_no; z++){
+      if(order[z]==hm_w){
+	get_plane_vector(z,z_vec);
+	for(i = 0; i<num_erasures; i++){
+	  x = erasures[i].x;
+	  y = erasures[i].y;
+	  node_xy = y*q+x;
+          node_sw = y*q+z_vec[y];
+          z_sw = z + ( x - z_vec[y] ) * pow_int(q,t-1-y);
+
+	  A1 = (node_xy < k+nu) ? &data_ptrs[node_xy][z*ss_size] : &code_ptrs[node_xy-k-nu][z*ss_size];
+          A2 = (node_sw < k+nu) ? &data_ptrs[node_sw][z_sw*ss_size] : &code_ptrs[node_sw-k-nu][z_sw*ss_size];
+
+	  if(z_vec[y] != x){ //not a hole-dot pair
+	    if(is_erasure_type_1(i, erasures, z_vec)){
+	      get_type1_A(A1, &B_buf[node_xy][z*ss_size], A2, ss_size);
+	    } else{
+	      // case for type-2 erasure, there is a hole-dot pair in this y column
+              assert(erased[node_sw]==1);
+              get_A1_fromB1B2(A1, &B_buf[node_xy][z*ss_size], &B_buf[node_sw][z_sw*ss_size], ss_size);
+	    }
+	  } else { //for type 0 erasure (hole-dot pair)  copy the B1 to A1
+            memcpy(A1, &B_buf[node_xy][z*ss_size], ss_size);
+          }
+
+	}//get A's from B's
+      }
+    }//plane
+
+  }//hm_w, order
+
+  free(erased);
+  return 0;
+}
+
+void ErasureCodeJerasureCLMSR::set_planes_sequential_decoding_order(int* order, erasure_t* erasures){
+  int z, i;
+
+  int z_vec[t];
+
+  for(z = 0; z< sub_chunk_no; z++){
+    get_plane_vector(z,z_vec);
+    order[z] = 0;
+    //check across all m erasures
+    for(i = 0; i<m; i++){
+      if(erasures[i].x == z_vec[erasures[i].y]){
+	order[z] = order[z]+1;
+      }
+    }
+  }
+}
+
+void ErasureCodeJerasureCLMSR::decode_erasures(int* erasure_locations, int z, int* z_vec,
+                            char** data_ptrs, char** code_ptrs, int ss_size, char** B_buf)
+{
+  int x, y;
+  int node_xy;
+  int node_sw;
+  int z_sw;
+
+  char* A1 = NULL;
+  char* A2 = NULL;
+
+  int* erased = jerasure_erasures_to_erased(k+nu,m, erasure_locations);
+  if(erased==NULL) return;
+
+  get_plane_vector(z,z_vec);
+
+  // Need to get the B's to do a jerasure_decode
+  for(x=0; x < q; x++){
+    for(y=0; y<t; y++){
+      node_xy = y*q+x; 
+      node_sw = y*q+z_vec[y];
+      z_sw = z + (x - z_vec[y]) * pow_int(q,t-1-y);
+
+      A1 = (node_xy < k+nu) ? &data_ptrs[node_xy][z*ss_size] : &code_ptrs[node_xy-k-nu][z*ss_size];
+      A2 = (node_sw < k+nu) ? &data_ptrs[node_sw][z_sw*ss_size] : &code_ptrs[node_sw-k-nu][z_sw*ss_size];
+
+      if(erased[node_xy] == 0){ //if not an erasure 
+	if(z_vec[y] != x){//not a dot
+          get_B1_fromA1A2(&B_buf[node_xy][z*ss_size], A1, A2, ss_size);
+	} else { //dot
+          memcpy(&B_buf[node_xy][z*ss_size], A1, ss_size);
+        }
+      }
+    }
+  }
+
+  //Decode in B's
+  jerasure_matrix_decode_substripe(k+nu, m, w, matrix, 0, erasure_locations, 
+                                   &B_buf[0], &B_buf[k+nu], z, ss_size);
+
+  free(erased);
+}
+
+void ErasureCodeJerasureCLMSR::get_plane_vector(int z, int* z_vec)
+{
+  int i ;
+
+  for(i = 0; i<t; i++ ){
+    z_vec[t-1-i] = z%q;
+    z = (z - z_vec[t-1-i])/q;
+  }
+  return;
+}
+
+void ErasureCodeJerasureCLMSR::get_erasure_coordinates(int* erasure_locations, erasure_t* erasures)
+{
+  int i;
+
+  for(i = 0; i<m; i++){
+    if(erasure_locations[i]==-1)break;
+    erasures[i].x = erasure_locations[i]%q;
+    erasures[i].y = erasure_locations[i]/q;
+  }
+}
+
+void ErasureCodeJerasureCLMSR::get_weight_vector(erasure_t* erasures, int* weight_vec)
+{
+  int i;
+
+  memset(weight_vec, 0, sizeof(int)*t);
+  for( i = 0; i< m; i++)
+    {
+      weight_vec[erasures[i].y]++;
+    }
+  return;
+}
+
+int ErasureCodeJerasureCLMSR::get_hamming_weight( int* weight_vec)
+{
+  int i;
+  int weight = 0;
+
+  for(i=0;i<t;i++){
+    if(weight_vec[i] != 0) weight++;
+  }
+  return weight;
+}
+
+
+extern int ErasureCodeJerasureCLMSR::is_erasure_type_1(int ind, erasure_t* erasures, int* z_vec){
+
+  // Need to look for the column of where erasures[i] is and search to see if there is a hole dot pair.
+  int i;
+
+  if(erasures[ind].x == z_vec[erasures[ind].y]) return 0; //type-0 erasure
+
+  for(i=0; i < m; i++){
+    if(erasures[i].y == erasures[ind].y){
+      if(erasures[i].x == z_vec[erasures[i].y]){
+	return 0;
+      }
+    }
+  }
+  return 1;
+
+}
+
+void ErasureCodeJerasureCLMSR::gamma_transform(char* dest1, char* dest2, char* code_symbol_1, char* code_symbol_2,  int size)
+{
+  int tmatrix[4];
+  tmatrix[0] = 1;
+  tmatrix[1] = gamma;
+  tmatrix[2] = gamma;
+  tmatrix[3] = 1;
+
+  char* A[2];
+  A[0] = code_symbol_1;
+  A[1] = code_symbol_2;
+  
+  char* dest[2];
+  dest[0] = dest1;
+  dest[1] = dest2;
+
+  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, A, dest, size);
+  jerasure_matrix_dotprod(2, w, &tmatrix[2], NULL, 3, A, dest, size);
+
+}
+
+void ErasureCodeJerasureCLMSR::gamma_inverse_transform(char* dest1, char* dest2, char* code_symbol_1, char* code_symbol_2,  int size)
+{
+  int gamma_square = galois_single_multiply(gamma, gamma, w);
+  int gamma_det_inv = galois_single_divide(1, 1 ^ (gamma_square), w);
+
+  int tmatrix[4];
+  tmatrix[0] = gamma_det_inv;
+  tmatrix[1] = galois_single_multiply(gamma,gamma_det_inv,w);
+  tmatrix[2] = tmatrix[1];
+  tmatrix[3] = tmatrix[0];
+
+  char* A[2];
+  A[0] = code_symbol_1;
+  A[1] = code_symbol_2;
+ 
+  char* dest[2];
+  dest[0] = dest1;
+  dest[1] = dest2;
+
+  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, A, dest, size);
+  jerasure_matrix_dotprod(2, w, &tmatrix[2], NULL, 3, A, dest, size);
+
+}
+
+void ErasureCodeJerasureCLMSR::get_type1_A(char* A1, char* B1, char* A2, int size){
+  int tmatrix[2];
+  tmatrix[0] = 1;
+  tmatrix[1] = gamma;
+  
+  char* in_dot[2];
+  in_dot[0] = B1;
+  in_dot[1] = A2;
+
+  char* dest[1];
+  dest[0] = A1;
+
+  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
+}
+
+void ErasureCodeJerasureCLMSR::get_type2_A(char* A2, char* B1, char* A1, int size){
+  int tmatrix[2];
+  tmatrix[0] = galois_single_divide(1,gamma,w);
+  tmatrix[1] = tmatrix[0];
+  
+  char* in_dot[2];
+  in_dot[0] = B1;
+  in_dot[1] = A1;
+
+  char* dest[1];
+  dest[0] = A2;
+
+  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
+}
+
+void ErasureCodeJerasureCLMSR::get_B1_fromA1B2(char* B1, char* A1, char* B2, int size)
+{
+  int gamma_square = galois_single_multiply(gamma, gamma, w);
+
+  int tmatrix[2];
+  tmatrix[0] = (1 ^ gamma_square);
+  tmatrix[1] = gamma;
+
+  char* in_dot[2];
+  in_dot[0] = A1;
+  in_dot[1] = B2;
+
+  char* dest[1];
+  dest[0] = B1;
+  
+  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
+}
+
+void ErasureCodeJerasureCLMSR::get_B1_fromA1A2(char* B1, char* A1, char* A2, int size)
+{
+  int tmatrix[2];
+  
+  tmatrix[0] = 1;
+  tmatrix[1] = gamma;
+ 
+  char* in_dot[2];
+  in_dot[0] = A1;
+  in_dot[1] = A2;
+
+  char* dest[1];
+  dest[0] = B1;
+  
+  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size); 
+}
+
+void ErasureCodeJerasureCLMSR::get_A1_fromB1B2(char* A1, char* B1, char* B2,  int size)
+{
+  int gamma_square = galois_single_multiply(gamma, gamma, w);
+  int gamma_det_inv = galois_single_divide(1, 1 ^ (gamma_square), w);
+
+  int tmatrix[2];
+  tmatrix[0] = gamma_det_inv;
+  tmatrix[1] = galois_single_multiply(gamma,gamma_det_inv,w);
+
+  char* in_dot[2];
+  in_dot[0] = B1;
+  in_dot[1] = B2;
+ 
+  char* dest[1];
+  dest[0] = A1;
+
+  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
+
+}
+
+void ErasureCodeJerasureCLMSR::jerasure_matrix_dotprod_substripe(int k, int w, int *matrix_row,
+                          int *src_ids, int dest_id,
+                          char **data_ptrs, char **coding_ptrs, int z, int ss_size)
+{
+  int init;
+  char *dptr, *sptr;
+  int i;
+
+  if (w!=1 && w != 8 && w != 16 && w != 32) {
+    fprintf(stderr,"ERROR: jerasure_matrix_dotprod() called and w is not 1, 8, 16 or 32\n");
+    assert(0);
+  }
+
+  init = 0;
+  //printf("jerasure_matrix_dotprod_substripe: assigning dptr for plane %d ss_size %d\n",z,ss_size);
+  dptr = (dest_id < k) ? &data_ptrs[dest_id][z*ss_size] : &coding_ptrs[dest_id-k][z*ss_size];
+
+  /* First copy or xor any data that does not need to be multiplied by a factor */
+
+  for (i = 0; i < k; i++) {
+    if (matrix_row[i] == 1) {
+      if (src_ids == NULL) {
+        sptr = &data_ptrs[i][z*ss_size];
+      } else if (src_ids[i] < k) {
+        sptr = &data_ptrs[src_ids[i]][z*ss_size];
+      } else {
+        sptr = &coding_ptrs[src_ids[i]-k][z*ss_size];
+      }
+      if (init == 0) {
+        memcpy(dptr, sptr, ss_size);
+        //jerasure_total_memcpy_bytes += ss_size;
+        init = 1;
+      } else {
+        galois_region_xor(sptr, dptr, ss_size);
+        //jerasure_total_xor_bytes += ss_size;
+      }
+    }
+  }
+  /* Now do the data that needs to be multiplied by a factor */
+
+  for (i = 0; i < k; i++) {
+    if (matrix_row[i] != 0 && matrix_row[i] != 1) {
+      //printf("matrix_row[%d] = %d\n",i,matrix_row[i]);
+      if (src_ids == NULL) {
+        sptr = &data_ptrs[i][z*ss_size];
+      } else if (src_ids[i] < k) {
+        sptr = &data_ptrs[src_ids[i]][z*ss_size];
+      } else {
+        sptr = &coding_ptrs[src_ids[i]-k][z*ss_size];
+      }
+      switch (w) {
+        case 8:  galois_w08_region_multiply(sptr, matrix_row[i], ss_size, dptr, init); break;
+        case 16: galois_w16_region_multiply(sptr, matrix_row[i], ss_size, dptr, init); break;
+        case 32: galois_w32_region_multiply(sptr, matrix_row[i], ss_size, dptr, init); break;
+      }
+      //jerasure_total_gf_bytes += ss_size;
+      init = 1;
+      //printf("sptr[0] = %d, dptr[0] = %d\n", sptr[0], dptr[0]);
+    }
+  }
+  //printf("jerasure_matrix_dotprod_substripe: exiting\n");
+}
+
+int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int w, int *matrix, int row_k_ones, int *erasures,
+                          char **data_ptrs, char **coding_ptrs, int z, int ss_size)
+{
+  int i, edd, lastdrive;
+  int *tmpids;
+  int *erased, *decoding_matrix, *dm_ids;
+
+  if (w != 8 && w != 16 && w != 32) return -1;
+
+  erased = jerasure_erasures_to_erased(k, m, erasures);
+  if (erased == NULL) return -1;
+
+  /* Find the number of data drives failed */
+
+  lastdrive = k;
+
+  edd = 0;
+  for (i = 0; i < k; i++) {
+    if (erased[i]) {
+      edd++;
+      lastdrive = i;
+    }
+  }
+ /* You only need to create the decoding matrix in the following cases:
+
+      1. edd > 0 and row_k_ones is false.
+      2. edd > 0 and row_k_ones is true and coding device 0 has been erased.
+      3. edd > 1
+
+      We're going to use lastdrive to denote when to stop decoding data.
+      At this point in the code, it is equal to the last erased data device.
+      However, if we can't use the parity row to decode it (i.e. row_k_ones=0
+         or erased[k] = 1, we're going to set it to k so that the decoding
+         pass will decode all data.
+   */
+
+  if (!row_k_ones || erased[k]) lastdrive = k;
+
+  dm_ids = NULL;
+  decoding_matrix = NULL;
+
+  if (edd > 1 || (edd > 0 && (!row_k_ones || erased[k]))) {
+    dm_ids = talloc(int, k);
+    if (dm_ids == NULL) {
+      free(erased);
+      return -1;
+    }
+
+    decoding_matrix = talloc(int, k*k);
+    if (decoding_matrix == NULL) {
+      free(erased);
+      free(dm_ids);
+      return -1;
+    }
+
+    if (jerasure_make_decoding_matrix(k, m, w, matrix, erased, decoding_matrix, dm_ids) < 0) {
+      free(erased);
+      free(dm_ids);
+      free(decoding_matrix);
+      return -1;
+ }
+  }
+
+  /* Decode the data drives.
+     If row_k_ones is true and coding device 0 is intact, then only decode edd-1 drives.
+     This is done by stopping at lastdrive.
+     We test whether edd > 0 so that we can exit the loop early if we're done.
+   */
+  //int alpha = pow_int(m, k/m + 1);
+  //print_coding(k, m, alpha, w, ss_size*alpha, data_ptrs, coding_ptrs);
+
+  for (i = 0; edd > 0 && i < lastdrive; i++) {
+    if (erased[i]) {
+      jerasure_matrix_dotprod_substripe(k, w, decoding_matrix+(i*k), dm_ids, i, data_ptrs, coding_ptrs, z, ss_size);
+      edd--;
+    }
+  }
+
+  /* Then if necessary, decode drive lastdrive */
+
+  if (edd > 0) {
+    tmpids = talloc(int, k);
+    for (i = 0; i < k; i++) {
+      tmpids[i] = (i < lastdrive) ? i : i+1;
+    }
+    jerasure_matrix_dotprod_substripe(k, w, matrix, tmpids, lastdrive, data_ptrs, coding_ptrs, z, ss_size);
+    free(tmpids);
+  }
+
+  /* Finally, re-encode any erased coding devices */
+
+  for (i = 0; i < m; i++) {
+    if (erased[k+i]) {
+      jerasure_matrix_dotprod_substripe(k, w, matrix+(i*k), NULL, i+k, data_ptrs, coding_ptrs, z, ss_size);
+    }
+  }
+  //print_coding(k,m,alpha,w,ss_size*alpha, data_ptrs, coding_ptrs);
+
+  free(erased);
+  if (dm_ids != NULL) free(dm_ids);
+  if (decoding_matrix != NULL) free(decoding_matrix);
+
+  return 0;
 }

@@ -175,6 +175,33 @@ int ErasureCode::decode_chunks(const set<int> &want_to_read,
   assert("ErasureCode::decode_chunks not implemented" == 0);
 }
 
+int ErasureCode::minimum_to_repair(const set<int> &want_to_read,
+                                   const set<int> &available_chunks,
+                                   set<int> *minimum)
+{
+  return minimum_to_decode(want_to_read, available_chunks, minimum);
+}
+
+int ErasureCode::is_repair(const set<int> &want_to_read,
+                       const set<int> &available_chunks)
+{
+  return 0;
+}
+
+void ErasureCode::get_repair_subchunks(const set<int> &to_repair,
+                                   const set<int> &helper_chunks,
+                                   int helper_chunk_ind,
+                                   map<int, int> &repair_sub_chunks_ind){
+return;
+}
+
+int ErasureCode::repair(const set<int> &want_to_read,
+                        const map<int, bufferlist> &chunks,
+                        map<int, bufferlist> *decoded)
+{
+  return decode(want_to_read, chunks, decoded);
+}
+
 int ErasureCode::parse(const ErasureCodeProfile &profile,
 		       ostream *ss)
 {
