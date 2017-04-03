@@ -52,9 +52,17 @@ namespace ceph {
       return get_chunk_count() - get_data_chunk_count();
     }
 
-    int minimum_to_decode(const set<int> &want_to_read,
+    virtual int get_sub_chunk_count() {
+      return 1;
+    }
+
+    virtual int minimum_to_decode(const set<int> &want_to_read,
                                   const set<int> &available_chunks,
-                                  set<int> *minimum) override;
+                                  set<int> *minimum);
+
+    virtual int minimum_to_decode2(const set<int> &want_to_read,
+                                  const set<int> &available,
+                                  map<int, list<pair<int,int>>> *minimum);
 
     int minimum_to_decode_with_cost(const set<int> &want_to_read,
                                             const map<int, int> &available,
@@ -73,6 +81,10 @@ namespace ceph {
     int decode(const set<int> &want_to_read,
                        const map<int, bufferlist> &chunks,
                        map<int, bufferlist> *decoded) override;
+
+    int decode2(const set<int> &want_to_read,
+                const map<int, bufferlist> &chunks,
+                map<int, bufferlist> *decoded, int chunk_size);
 
     int decode_chunks(const set<int> &want_to_read,
                               const map<int, bufferlist> &chunks,

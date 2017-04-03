@@ -3,6 +3,17 @@
 #include <errno.h>
 #include "include/encoding.h"
 #include "ECUtil.h"
+#include "common/debug.h"
+
+#define dout_context g_ceph_context
+#define dout_subsys ceph_subsys_osd
+#undef dout_prefix
+#define dout_prefix _prefix(_dout)
+
+static ostream& _prefix(std::ostream* _dout)
+{
+  return *_dout << "ECUtil: ";
+}
 
 int ECUtil::decode(
   const stripe_info_t &sinfo,
@@ -35,8 +46,10 @@ int ECUtil::decode(
     }
     bufferlist bl;
     int r = ec_impl->decode_concat(chunks, &bl);
-    assert(bl.length() == sinfo.get_stripe_width());
+    dout(10) << __func__ << " decode_concat returned " << r << dendl;
     assert(r == 0);
+    dout(10) << __func__ << " buffer_length:"<<bl.length() << " stripe_width:" << sinfo.get_stripe_width() << dendl;
+    assert(bl.length() == sinfo.get_stripe_width());
     out->claim_append(bl);
   }
   return 0;
@@ -47,19 +60,8 @@ int ECUtil::decode(
   ErasureCodeInterfaceRef &ec_impl,
   map<int, bufferlist> &to_decode,
   map<int, bufferlist*> &out) {
+
   assert(to_decode.size());
-
-  uint64_t total_data_size = to_decode.begin()->second.length();
-  assert(total_data_size % sinfo.get_chunk_size() == 0);
-
-  for (map<int, bufferlist>::iterator i = to_decode.begin();
-       i != to_decode.end();
-       ++i) {
-    assert(i->second.length() == total_data_size);
-  }
-
-  if (total_data_size == 0)
-    return 0;
 
   set<int> need;
   for (map<int, bufferlist*>::iterator i = out.begin();
@@ -70,15 +72,50 @@ int ECUtil::decode(
     need.insert(i->first);
   }
 
-  for (uint64_t i = 0; i < total_data_size; i += sinfo.get_chunk_size()) {
+  set<int> avail;
+  for (map<int, bufferlist>::iterator i = to_decode.begin();
+       i != to_decode.end();
+       ++i) {
+    assert(i->second.length() != 0);
+    avail.insert(i->first);
+  }
+
+  map<int, list<pair<int,int>>> min;
+  assert(ec_impl->minimum_to_decode2(need, avail, &min) == 0);
+
+  int chunks_count = 0;
+  map<int, int> repair_data_per_chunk;
+  int subchunk_size = sinfo.get_chunk_size()/ec_impl->get_sub_chunk_count();
+
+  for (map<int, bufferlist>::iterator i = to_decode.begin();
+       i != to_decode.end();
+       ++i) {
+    assert(min.find(i->first) != min.end());
+
+    int repair_subchunk_count = 0;
+    for(list<pair<int,int>>::iterator j = min[i->first].begin();
+          j != min[i->first].end(); ++j){
+      repair_subchunk_count += j->second;
+    }
+    repair_data_per_chunk[i->first] = repair_subchunk_count*subchunk_size;
+    assert(i->second.length() % repair_data_per_chunk[i->first] == 0);
+
+    if(i == to_decode.begin()){
+      chunks_count = (int) i->second.length() / repair_data_per_chunk[i->first];
+      dout(20) << __func__ << " setting chunks_count as " << chunks_count << dendl;
+    }
+    else assert(chunks_count == (int) i->second.length() / repair_data_per_chunk[i->first]);
+  }
+
+  for (int i = 0; i < chunks_count; i++) {
     map<int, bufferlist> chunks;
     for (map<int, bufferlist>::iterator j = to_decode.begin();
 	 j != to_decode.end();
 	 ++j) {
-      chunks[j->first].substr_of(j->second, i, sinfo.get_chunk_size());
+      chunks[j->first].substr_of(j->second, i*repair_data_per_chunk[j->first], repair_data_per_chunk[j->first]);
     }
     map<int, bufferlist> out_bls;
-    int r = ec_impl->decode(need, chunks, &out_bls);
+    int r = ec_impl->decode2(need, chunks, &out_bls, sinfo.get_chunk_size());
     assert(r == 0);
     for (map<int, bufferlist*>::iterator j = out.begin();
 	 j != out.end();
@@ -91,7 +128,7 @@ int ECUtil::decode(
   for (map<int, bufferlist*>::iterator i = out.begin();
        i != out.end();
        ++i) {
-    assert(i->second->length() == total_data_size);
+    assert(i->second->length() == chunks_count*sinfo.get_chunk_size());
   }
   return 0;
 }

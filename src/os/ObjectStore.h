@@ -1686,7 +1686,6 @@ public:
      bool allow_eio = false) {
      return read(c->get_cid(), oid, offset, len, bl, op_flags, allow_eio);
    }
-
   /**
    * fiemap -- get extent map of data of an object
    *

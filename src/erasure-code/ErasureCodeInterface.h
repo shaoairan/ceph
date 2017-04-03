@@ -143,6 +143,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <list>
 #include <iostream>
 #include "include/memory.h"
 #include "include/buffer_fwd.h"
@@ -250,6 +251,16 @@ namespace ceph {
     virtual unsigned int get_coding_chunk_count() const = 0;
 
     /**
+     * Return the number of sub chunks chunks created by a call to the
+     * **encode** method. Each chunk can be viewed as union of sub-chunks
+     * For the case of array codes, the sub-chunk count > 1, where as the
+     * scalar codes have sub-chunk count = 1.
+     *
+     * @return the number of sub-chunks per chunk created by encode()
+     */
+    virtual int get_sub_chunk_count() = 0;
+
+    /**
      * Return the size (in bytes) of a single chunk created by a call
      * to the **decode** method. The returned size multiplied by
      * **get_chunk_count()** is greater or equal to **object_size**.
@@ -287,6 +298,10 @@ namespace ceph {
     virtual int minimum_to_decode(const set<int> &want_to_read,
                                   const set<int> &available,
                                   set<int> *minimum) = 0;
+
+    virtual int minimum_to_decode2(const set<int> &want_to_read,
+                                  const set<int> &available,
+                                  map<int, list<pair<int,int>>> *minimum) = 0;
 
     /**
      * Compute the smallest subset of **available** chunks that needs
@@ -396,9 +411,26 @@ namespace ceph {
                        const map<int, bufferlist> &chunks,
                        map<int, bufferlist> *decoded) = 0;
 
+    virtual int decode2(const set<int> &want_to_read,
+                       const map<int, bufferlist> &chunks,
+                       map<int, bufferlist> *decoded, int chunk_size) = 0;
+
     virtual int decode_chunks(const set<int> &want_to_read,
                               const map<int, bufferlist> &chunks,
                               map<int, bufferlist> *decoded) = 0;
+
+    /**
+     * Obtains the **repaired** chunks by running repair algorithm
+     * on helper chunks *chunks*. 
+     *
+     * @param [in] want_to_read indices of to be repaired chunks.
+     * @param [in] chunks map helper chunk indices to chunk data.
+     * @param [out] repaired map repai chunk indices to chunk data.
+     * @return **0** on success and errno on error.
+     */
+    /*virtual int repair(const set<int> &want_to_read,
+                       const map<int, bufferlist> &chunks,
+                       map<int, bufferlist> *repaired)=0;*/
 
     /**
      * Return the ordered list of chunks or an empty vector
