@@ -166,13 +166,9 @@ void ECSubWriteReply::generate_test_instances(list<ECSubWriteReply*>& o)
 void ECSubRead::encode(bufferlist &bl, uint64_t features) const
 {
   if ((features & CEPH_FEATURE_OSD_FADVISE_FLAGS) == 0) {
-    ENCODE_START(1, 1, bl);
+    ENCODE_START(2, 1, bl);
     ::encode(from, bl);
     ::encode(tid, bl);
-    ::encode(is_repair, bl);
-    ::encode(repair_lost_nodes, bl);
-    ::encode(repair_helper_nodes, bl);
-    ::encode(helper_shard_ids, bl);
     map<hobject_t, list<pair<uint64_t, uint64_t> >> tmp;
     for (map<hobject_t, list<boost::tuple<uint64_t, uint64_t, uint32_t> >>::const_iterator m = to_read.begin();
 	  m != to_read.end(); ++m) {
@@ -185,31 +181,31 @@ void ECSubRead::encode(bufferlist &bl, uint64_t features) const
     }
     ::encode(tmp, bl);
     ::encode(attrs_to_read, bl);
+    ::encode(is_repair, bl);
+    ::encode(repair_lost_nodes, bl);
+    ::encode(repair_helper_nodes, bl);
+    ::encode(helper_shard_ids, bl);
     ENCODE_FINISH(bl);
     return;
   }
 
-  ENCODE_START(2, 2, bl);
+  ENCODE_START(3, 2, bl);
   ::encode(from, bl);
   ::encode(tid, bl);
+  ::encode(to_read, bl);
+  ::encode(attrs_to_read, bl);
   ::encode(is_repair, bl);
   ::encode(repair_lost_nodes, bl);
   ::encode(repair_helper_nodes, bl);
   ::encode(helper_shard_ids, bl);
-  ::encode(to_read, bl);
-  ::encode(attrs_to_read, bl);
   ENCODE_FINISH(bl);
 }
 
 void ECSubRead::decode(bufferlist::iterator &bl)
 {
-  DECODE_START(2, bl);
+  DECODE_START(3, bl);
   ::decode(from, bl);
   ::decode(tid, bl);
-  ::decode(is_repair,bl);
-  ::decode(repair_lost_nodes, bl);
-  ::decode(repair_helper_nodes, bl);
-  ::decode(helper_shard_ids, bl);
   if (struct_v == 1) {
     map<hobject_t, list<pair<uint64_t, uint64_t> >>tmp;
     ::decode(tmp, bl);
@@ -222,10 +218,22 @@ void ECSubRead::decode(bufferlist::iterator &bl)
       }
       to_read[m->first] = tlist;
     }
-  } else {
+  } else{
     ::decode(to_read, bl);
   }
   ::decode(attrs_to_read, bl);
+  if((struct_v > 2) && (struct_v > struct_compat) ){
+    ::decode(is_repair,bl);
+    ::decode(repair_lost_nodes, bl);
+    ::decode(repair_helper_nodes, bl);
+    ::decode(helper_shard_ids, bl);
+  }
+  else{
+    for (set<hobject_t>::iterator m = attrs_to_read.begin();
+	  m != attrs_to_read.end(); ++m) {
+      is_repair[*m] = false;
+    }
+  }
   DECODE_FINISH(bl);
 }
 
