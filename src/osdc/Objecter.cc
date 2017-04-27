@@ -1400,14 +1400,13 @@ int Objecter::pool_snap_by_name(int64_t poolid, const char *snap_name,
 {
   shared_lock rl(rwlock);
 
-  const map<int64_t, pg_pool_t>& pools = osdmap->get_pools();
-  map<int64_t, pg_pool_t>::const_iterator iter = pools.find(poolid);
+  auto& pools = osdmap->get_pools();
+  auto iter = pools.find(poolid);
   if (iter == pools.end()) {
     return -ENOENT;
   }
   const pg_pool_t& pg_pool = iter->second;
-  map<snapid_t, pool_snap_info_t>::const_iterator p;
-  for (p = pg_pool.snaps.begin();
+  for (auto p = pg_pool.snaps.begin();
        p != pg_pool.snaps.end();
        ++p) {
     if (p->second.name == snap_name) {
@@ -1423,13 +1422,13 @@ int Objecter::pool_snap_get_info(int64_t poolid, snapid_t snap,
 {
   shared_lock rl(rwlock);
 
-  const map<int64_t, pg_pool_t>& pools = osdmap->get_pools();
-  map<int64_t, pg_pool_t>::const_iterator iter = pools.find(poolid);
+  auto& pools = osdmap->get_pools();
+  auto iter = pools.find(poolid);
   if (iter == pools.end()) {
     return -ENOENT;
   }
   const pg_pool_t& pg_pool = iter->second;
-  map<snapid_t,pool_snap_info_t>::const_iterator p = pg_pool.snaps.find(snap);
+  auto p = pg_pool.snaps.find(snap);
   if (p == pg_pool.snaps.end())
     return -ENOENT;
   *info = p->second;
@@ -2358,8 +2357,13 @@ void Objecter::_op_submit(Op *op, shunique_lock& sul, ceph_tid_t *ptid)
 
   bool need_send = false;
 
-  if ((op->target.flags & CEPH_OSD_FLAG_WRITE) &&
-      osdmap->test_flag(CEPH_OSDMAP_PAUSEWR)) {
+  if (osdmap->get_epoch() < epoch_barrier) {
+    ldout(cct, 10) << " barrier, paused " << op << " tid " << op->tid
+		   << dendl;
+    op->target.paused = true;
+    _maybe_request_map();
+  } else if ((op->target.flags & CEPH_OSD_FLAG_WRITE) &&
+             osdmap->test_flag(CEPH_OSDMAP_PAUSEWR)) {
     ldout(cct, 10) << " paused modify " << op << " tid " << op->tid
 		   << dendl;
     op->target.paused = true;

@@ -37,9 +37,11 @@
 #include "messages/MOSDPGScan.h"
 #include "messages/MOSDRepScrub.h"
 #include "messages/MOSDPGBackfill.h"
+#include "messages/MOSDPGBackfillRemove.h"
 #include "messages/MOSDPGUpdateLogMissing.h"
 #include "messages/MOSDPGUpdateLogMissingReply.h"
 #include "messages/MCommandReply.h"
+#include "messages/MOSDScrubReserve.h"
 #include "mds/inode_backtrace.h" // Ugh
 #include "common/EventTrace.h"
 
@@ -1531,7 +1533,7 @@ void PrimaryLogPG::get_src_oloc(const object_t& oid, const object_locator_t& olo
 void PrimaryLogPG::handle_backoff(OpRequestRef& op)
 {
   const MOSDBackoff *m = static_cast<const MOSDBackoff*>(op->get_req());
-  SessionRef session((Session *)m->get_connection()->get_priv());
+  SessionRef session = static_cast<Session*>(m->get_connection()->get_priv());
   if (!session)
     return;  // drop it.
   session->put();  // get_priv takes a ref, and so does the SessionRef
@@ -1577,7 +1579,7 @@ void PrimaryLogPG::do_request(
   // pg-wide backoffs
   const Message *m = op->get_req();
   if (m->get_connection()->has_feature(CEPH_FEATURE_RADOS_BACKOFF)) {
-    SessionRef session((Session *)m->get_connection()->get_priv());
+    SessionRef session = static_cast<Session*>(m->get_connection()->get_priv());
     if (!session)
       return;  // drop it.
     session->put();  // get_priv takes a ref, and so does the SessionRef
@@ -1680,8 +1682,37 @@ void PrimaryLogPG::do_request(
     do_backfill(op);
     break;
 
+  case MSG_OSD_PG_BACKFILL_REMOVE:
+    do_backfill_remove(op);
+    break;
+
+  case MSG_OSD_SCRUB_RESERVE:
+    {
+      const MOSDScrubReserve *m =
+	static_cast<const MOSDScrubReserve*>(op->get_req());
+      switch (m->type) {
+      case MOSDScrubReserve::REQUEST:
+	handle_scrub_reserve_request(op);
+	break;
+      case MOSDScrubReserve::GRANT:
+	handle_scrub_reserve_grant(op, m->from);
+	break;
+      case MOSDScrubReserve::REJECT:
+	handle_scrub_reserve_reject(op, m->from);
+	break;
+      case MOSDScrubReserve::RELEASE:
+	handle_scrub_reserve_release(op);
+	break;
+      }
+    }
+    break;
+
   case MSG_OSD_REP_SCRUB:
     replica_scrub(op, handle);
+    break;
+
+  case MSG_OSD_REP_SCRUBMAP:
+    do_replica_scrub_map(op);
     break;
 
   case MSG_OSD_PG_UPDATE_LOG_MISSING:
@@ -1748,7 +1779,7 @@ void PrimaryLogPG::do_op(OpRequestRef& op)
     m->get_connection()->has_feature(CEPH_FEATURE_RADOS_BACKOFF);
   SessionRef session;
   if (can_backoff) {
-    session = ((Session *)m->get_connection()->get_priv());
+    session = static_cast<Session*>(m->get_connection()->get_priv());
     if (!session.get()) {
       dout(10) << __func__ << " no session" << dendl;
       return;
@@ -1844,19 +1875,26 @@ void PrimaryLogPG::do_op(OpRequestRef& op)
   // discard due to cluster full transition?  (we discard any op that
   // originates before the cluster or pool is marked full; the client
   // will resend after the full flag is removed or if they expect the
-  // op to succeed despite being full).  The except is FULL_FORCE ops,
-  // which there is no reason to discard because they bypass all full
-  // checks anyway.
-  // If this op isn't write or read-ordered, we skip
+  // op to succeed despite being full).  The except is FULL_FORCE and
+  // FULL_TRY ops, which there is no reason to discard because they
+  // bypass all full checks anyway.  If this op isn't write or
+  // read-ordered, we skip.
   // FIXME: we exclude mds writes for now.
-  if (write_ordered && !( m->get_source().is_mds() || m->has_flag(CEPH_OSD_FLAG_FULL_FORCE)) &&
+  if (write_ordered && !(m->get_source().is_mds() ||
+			 m->has_flag(CEPH_OSD_FLAG_FULL_TRY) ||
+			 m->has_flag(CEPH_OSD_FLAG_FULL_FORCE)) &&
       info.history.last_epoch_marked_full > m->get_map_epoch()) {
     dout(10) << __func__ << " discarding op sent before full " << m << " "
 	     << *m << dendl;
     return;
   }
-  if (!(m->get_source().is_mds()) && osd->check_failsafe_full() && write_ordered) {
+  // mds should have stopped writing before this point.
+  // We can't allow OSD to become non-startable even if mds
+  // could be writing as part of file removals.
+  ostringstream ss;
+  if (write_ordered && osd->check_failsafe_full(ss)) {
     dout(10) << __func__ << " fail-safe full check failed, dropping request"
+             << ss.str()
 	     << dendl;
     return;
   }
@@ -2597,6 +2635,7 @@ void PrimaryLogPG::do_proxy_read(OpRequestRef op)
 	case CEPH_OSD_OP_READ:
 	case CEPH_OSD_OP_SYNC_READ:
 	case CEPH_OSD_OP_SPARSE_READ:
+	case CEPH_OSD_OP_CHECKSUM:
 	  op.flags = (op.flags | CEPH_OSD_OP_FLAG_FADVISE_SEQUENTIAL) &
 		       ~(CEPH_OSD_OP_FLAG_FADVISE_DONTNEED | CEPH_OSD_OP_FLAG_FADVISE_NOCACHE);
       }
@@ -3246,10 +3285,10 @@ void PrimaryLogPG::do_sub_op(OpRequestRef op)
       sub_op_remove(op);
       return;
     case CEPH_OSD_OP_SCRUB_RESERVE:
-      sub_op_scrub_reserve(op);
+      handle_scrub_reserve_request(op);
       return;
     case CEPH_OSD_OP_SCRUB_UNRESERVE:
-      sub_op_scrub_unreserve(op);
+      handle_scrub_reserve_release(op);
       return;
     case CEPH_OSD_OP_SCRUB_MAP:
       sub_op_scrub_map(op);
@@ -3266,7 +3305,17 @@ void PrimaryLogPG::do_sub_op_reply(OpRequestRef op)
     const OSDOp& first = r->ops[0];
     switch (first.op.op) {
     case CEPH_OSD_OP_SCRUB_RESERVE:
-      sub_op_scrub_reserve_reply(op);
+      {
+	pg_shard_t from = r->from;
+	bufferlist::iterator p = const_cast<bufferlist&>(r->get_data()).begin();
+	bool reserved;
+	::decode(reserved, p);
+	if (reserved) {
+	  handle_scrub_reserve_grant(op, from);
+	} else {
+	  handle_scrub_reserve_reject(op, from);
+	}
+      }
       return;
     }
   }
@@ -3285,10 +3334,9 @@ void PrimaryLogPG::do_scan(
   switch (m->op) {
   case MOSDPGScan::OP_SCAN_GET_DIGEST:
     {
-      double ratio, full_ratio;
-      if (osd->too_full_for_backfill(&ratio, &full_ratio)) {
-	dout(1) << __func__ << ": Canceling backfill, current usage is "
-		<< ratio << ", which exceeds " << full_ratio << dendl;
+      ostringstream ss;
+      if (osd->check_backfill_full(ss)) {
+	dout(1) << __func__ << ": Canceling backfill, " << ss.str() << dendl;
 	queue_peering_event(
 	  CephPeeringEvtRef(
 	    std::make_shared<CephPeeringEvt>(
@@ -3403,6 +3451,23 @@ void PrimaryLogPG::do_backfill(OpRequestRef op)
     }
     break;
   }
+}
+
+void PrimaryLogPG::do_backfill_remove(OpRequestRef op)
+{
+  const MOSDPGBackfillRemove *m = static_cast<const MOSDPGBackfillRemove*>(
+    op->get_req());
+  assert(m->get_type() == MSG_OSD_PG_BACKFILL_REMOVE);
+  dout(7) << __func__ << " " << m->ls << dendl;
+
+  op->mark_started();
+
+  ObjectStore::Transaction t;
+  for (auto& p : m->ls) {
+    remove_snap_mapped_object(t, p.first);
+  }
+  int r = osd->store->queue_transaction(osr.get(), std::move(t), NULL);
+  assert(r == 0);
 }
 
 PrimaryLogPG::OpContextUPtr PrimaryLogPG::trim_object(bool first, const hobject_t &coid)
@@ -3717,6 +3782,37 @@ int PrimaryLogPG::do_xattr_cmp_str(int op, string& v1s, bufferlist& xattr)
   }
 }
 
+int PrimaryLogPG::do_extent_cmp(OpContext *ctx, OSDOp& osd_op)
+{
+  ceph_osd_op& op = osd_op.op;
+  vector<OSDOp> read_ops(1);
+  OSDOp& read_op = read_ops[0];
+  int result = 0;
+
+  read_op.op.op = CEPH_OSD_OP_SYNC_READ;
+  read_op.op.extent.offset = op.extent.offset;
+  read_op.op.extent.length = op.extent.length;
+  read_op.op.extent.truncate_seq = op.extent.truncate_seq;
+  read_op.op.extent.truncate_size = op.extent.truncate_size;
+
+  result = do_osd_ops(ctx, read_ops);
+  if (result < 0) {
+    derr << "do_extent_cmp do_osd_ops failed " << result << dendl;
+    return result;
+  }
+
+  if (read_op.outdata.length() != osd_op.indata.length())
+    return -EINVAL;
+
+  for (uint64_t p = 0; p < osd_op.indata.length(); p++) {
+    if (read_op.outdata[p] != osd_op.indata[p]) {
+      return (-MAX_ERRNO - p);
+    }
+  }
+
+  return result;
+}
+
 int PrimaryLogPG::do_writesame(OpContext *ctx, OSDOp& osd_op)
 {
   ceph_osd_op& op = osd_op.op;
@@ -3737,7 +3833,7 @@ int PrimaryLogPG::do_writesame(OpContext *ctx, OSDOp& osd_op)
   }
 
   while (write_length) {
-    write_op.indata.append(osd_op.indata.c_str(), op.writesame.data_length);
+    write_op.indata.append(osd_op.indata);
     write_length -= op.writesame.data_length;
   }
 
@@ -4140,6 +4236,204 @@ void PrimaryLogPG::maybe_create_new_object(
   }
 }
 
+struct C_ChecksumRead : public Context {
+  PrimaryLogPG *primary_log_pg;
+  OSDOp &osd_op;
+  Checksummer::CSumType csum_type;
+  bufferlist init_value_bl;
+  ceph_le64 read_length;
+  bufferlist read_bl;
+  Context *fill_extent_ctx;
+
+  C_ChecksumRead(PrimaryLogPG *primary_log_pg, OSDOp &osd_op,
+		 Checksummer::CSumType csum_type, bufferlist &&init_value_bl,
+		 boost::optional<uint32_t> maybe_crc, uint64_t size,
+		 OSDService *osd, hobject_t soid, __le32 flags)
+    : primary_log_pg(primary_log_pg), osd_op(osd_op),
+      csum_type(csum_type), init_value_bl(std::move(init_value_bl)),
+      fill_extent_ctx(new FillInVerifyExtent(&read_length, &osd_op.rval,
+					     &read_bl, maybe_crc, size,
+					     osd, soid, flags)) {
+  }
+
+  void finish(int r) override {
+    fill_extent_ctx->complete(r);
+
+    if (osd_op.rval >= 0) {
+      bufferlist::iterator init_value_bl_it = init_value_bl.begin();
+      osd_op.rval = primary_log_pg->finish_checksum(osd_op, csum_type,
+						    &init_value_bl_it,
+						    read_bl);
+    }
+  }
+};
+
+int PrimaryLogPG::do_checksum(OpContext *ctx, OSDOp& osd_op,
+			      bufferlist::iterator *bl_it, bool *async_read)
+{
+  dout(20) << __func__ << dendl;
+
+  auto& op = osd_op.op;
+  if (op.checksum.chunk_size > 0) {
+    if (op.checksum.length == 0) {
+      dout(10) << __func__ << ": length required when chunk size provided"
+	       << dendl;
+      return -EINVAL;
+    }
+    if (op.checksum.length % op.checksum.chunk_size != 0) {
+      dout(10) << __func__ << ": length not aligned to chunk size" << dendl;
+      return -EINVAL;
+    }
+  }
+
+  auto& oi = ctx->new_obs.oi;
+  if (op.checksum.offset == 0 && op.checksum.length == 0) {
+    // zeroed offset+length implies checksum whole object
+    op.checksum.length = oi.size;
+  } else if (op.checksum.offset + op.checksum.length > oi.size) {
+    return -EOVERFLOW;
+  }
+
+  Checksummer::CSumType csum_type;
+  switch (op.checksum.type) {
+  case CEPH_OSD_CHECKSUM_OP_TYPE_XXHASH32:
+    csum_type = Checksummer::CSUM_XXHASH32;
+    break;
+  case CEPH_OSD_CHECKSUM_OP_TYPE_XXHASH64:
+    csum_type = Checksummer::CSUM_XXHASH64;
+    break;
+  case CEPH_OSD_CHECKSUM_OP_TYPE_CRC32C:
+    csum_type = Checksummer::CSUM_CRC32C;
+    break;
+  default:
+    dout(10) << __func__ << ": unknown crc type ("
+	     << static_cast<uint32_t>(op.checksum.type) << ")" << dendl;
+    return -EINVAL;
+  }
+
+  size_t csum_init_value_size = Checksummer::get_csum_init_value_size(csum_type);
+  if (bl_it->get_remaining() < csum_init_value_size) {
+    dout(10) << __func__ << ": init value not provided" << dendl;
+    return -EINVAL;
+  }
+
+  bufferlist init_value_bl;
+  init_value_bl.substr_of(bl_it->get_bl(), bl_it->get_off(),
+			  csum_init_value_size);
+  bl_it->advance(csum_init_value_size);
+
+  if (pool.info.require_rollback() && op.checksum.length > 0) {
+    // If there is a data digest and it is possible we are reading
+    // entire object, pass the digest.
+    boost::optional<uint32_t> maybe_crc;
+    if (oi.is_data_digest() && op.checksum.offset == 0 &&
+        op.checksum.length >= oi.size) {
+      maybe_crc = oi.data_digest;
+    }
+
+    // async read
+    auto& soid = oi.soid;
+    auto checksum_ctx = new C_ChecksumRead(this, osd_op, csum_type,
+					   std::move(init_value_bl), maybe_crc,
+					   oi.size, osd, soid, op.flags);
+    ctx->pending_async_reads.push_back({
+      {op.checksum.offset, op.checksum.length, op.flags},
+      {&checksum_ctx->read_bl, checksum_ctx}});
+
+    dout(10) << __func__ << ": async_read noted for " << soid << dendl;
+    *async_read = true;
+    return 0;
+  }
+
+  // sync read
+  *async_read = false;
+  std::vector<OSDOp> read_ops(1);
+  auto& read_op = read_ops[0];
+  if (op.checksum.length > 0) {
+    read_op.op.op = CEPH_OSD_OP_READ;
+    read_op.op.flags = op.flags;
+    read_op.op.extent.offset = op.checksum.offset;
+    read_op.op.extent.length = op.checksum.length;
+    read_op.op.extent.truncate_size = 0;
+    read_op.op.extent.truncate_seq = 0;
+
+    int r = do_osd_ops(ctx, read_ops);
+    if (r < 0) {
+      derr << __func__ << ": do_osd_ops failed: " << cpp_strerror(r) << dendl;
+      return r;
+    }
+  }
+
+  bufferlist::iterator init_value_bl_it = init_value_bl.begin();
+  return finish_checksum(osd_op, csum_type, &init_value_bl_it,
+			 read_op.outdata);
+}
+
+int PrimaryLogPG::finish_checksum(OSDOp& osd_op,
+				  Checksummer::CSumType csum_type,
+				  bufferlist::iterator *init_value_bl_it,
+				  const bufferlist &read_bl) {
+  dout(20) << __func__ << dendl;
+
+  auto& op = osd_op.op;
+
+  if (op.checksum.length > 0 && read_bl.length() != op.checksum.length) {
+    derr << __func__ << ": bytes read " << read_bl.length() << " != "
+	 << op.checksum.length << dendl;
+    return -EINVAL;
+  }
+
+  size_t csum_chunk_size = (op.checksum.chunk_size != 0 ?
+			      op.checksum.chunk_size : read_bl.length());
+  uint32_t csum_count = (csum_chunk_size > 0 ?
+			   read_bl.length() / csum_chunk_size : 0);
+
+  bufferlist csum;
+  bufferptr csum_data;
+  if (csum_count > 0) {
+    size_t csum_value_size = Checksummer::get_csum_value_size(csum_type);
+    csum_data = buffer::create(csum_value_size * csum_count);
+    csum_data.zero();
+    csum.append(csum_data);
+
+    switch (csum_type) {
+    case Checksummer::CSUM_XXHASH32:
+      {
+        Checksummer::xxhash32::init_value_t init_value;
+        ::decode(init_value, *init_value_bl_it);
+        Checksummer::calculate<Checksummer::xxhash32>(
+	  init_value, csum_chunk_size, 0, read_bl.length(), read_bl,
+	  &csum_data);
+      }
+      break;
+    case Checksummer::CSUM_XXHASH64:
+      {
+        Checksummer::xxhash64::init_value_t init_value;
+        ::decode(init_value, *init_value_bl_it);
+        Checksummer::calculate<Checksummer::xxhash64>(
+	  init_value, csum_chunk_size, 0, read_bl.length(), read_bl,
+	  &csum_data);
+      }
+      break;
+    case Checksummer::CSUM_CRC32C:
+      {
+        Checksummer::crc32c::init_value_t init_value;
+        ::decode(init_value, *init_value_bl_it);
+        Checksummer::calculate<Checksummer::crc32c>(
+  	  init_value, csum_chunk_size, 0, read_bl.length(), read_bl,
+	  &csum_data);
+      }
+      break;
+    default:
+      break;
+    }
+  }
+
+  ::encode(csum_count, osd_op.outdata);
+  osd_op.outdata.claim_append(csum);
+  return 0;
+}
+
 int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 {
   int result = 0;
@@ -4212,6 +4506,12 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
     switch (op.op) {
       
       // --- READS ---
+
+    case CEPH_OSD_OP_CMPEXT:
+      ++ctx->num_read;
+      tracepoint(osd, do_osd_op_pre_extent_cmp, soid.oid.name.c_str(), soid.snap.val, oi.size, oi.truncate_seq, op.extent.offset, op.extent.length, op.extent.truncate_size, op.extent.truncate_seq);
+      result = do_extent_cmp(ctx, osd_op);
+      break;
 
     case CEPH_OSD_OP_SYNC_READ:
       if (pool.info.require_rollback()) {
@@ -4306,6 +4606,22 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
       }
       break;
 
+    case CEPH_OSD_OP_CHECKSUM:
+      ++ctx->num_read;
+      {
+	tracepoint(osd, do_osd_op_pre_checksum, soid.oid.name.c_str(),
+		   soid.snap.val, oi.size, oi.truncate_seq, op.checksum.type,
+		   op.checksum.offset, op.checksum.length,
+		   op.checksum.chunk_size);
+
+	bool async_read;
+	result = do_checksum(ctx, osd_op, &bp, &async_read);
+	if (result == 0 && async_read) {
+	  continue;
+	}
+      }
+      break;
+
     /* map extents */
     case CEPH_OSD_OP_MAPEXT:
       tracepoint(osd, do_osd_op_pre_mapext, soid.oid.name.c_str(), soid.snap.val, op.extent.offset, op.extent.length);
@@ -4365,18 +4681,15 @@ int PrimaryLogPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	}
       } else {
 	// read into a buffer
-	bufferlist bl;
+        map<uint64_t, uint64_t> m;
         uint32_t total_read = 0;
 	int r = osd->store->fiemap(ch, ghobject_t(soid, ghobject_t::NO_GEN,
 						  info.pgid.shard),
-				   op.extent.offset, op.extent.length, bl);
+				   op.extent.offset, op.extent.length, m);
 	if (r < 0)  {
 	  result = r;
           break;
 	}
-        map<uint64_t, uint64_t> m;
-        bufferlist::iterator iter = bl.begin();
-        ::decode(m, iter);
         map<uint64_t, uint64_t>::iterator miter;
         bufferlist data_bl;
 	uint64_t last = op.extent.offset;
@@ -6526,24 +6839,27 @@ void PrimaryLogPG::do_osd_op_effects(OpContext *ctx, const ConnectionRef& conn)
   }
 }
 
-hobject_t PrimaryLogPG::generate_temp_object()
+hobject_t PrimaryLogPG::generate_temp_object(const hobject_t& target)
 {
   ostringstream ss;
-  ss << "temp_" << info.pgid << "_" << get_role() << "_" << osd->monc->get_global_id() << "_" << (++temp_seq);
-  hobject_t hoid = info.pgid.make_temp_hobject(ss.str());
+  ss << "temp_" << info.pgid << "_" << get_role()
+     << "_" << osd->monc->get_global_id() << "_" << (++temp_seq);
+  hobject_t hoid = target.make_temp_hobject(ss.str());
   dout(20) << __func__ << " " << hoid << dendl;
   return hoid;
 }
 
-hobject_t PrimaryLogPG::get_temp_recovery_object(eversion_t version, snapid_t snap)
+hobject_t PrimaryLogPG::get_temp_recovery_object(
+  const hobject_t& target,
+  eversion_t version)
 {
   ostringstream ss;
   ss << "temp_recovering_" << info.pgid  // (note this includes the shardid)
      << "_" << version
      << "_" << info.history.same_interval_since
-     << "_" << snap;
+     << "_" << target.snap;
   // pgid + version + interval + snapid is unique, and short
-  hobject_t hoid = info.pgid.make_temp_hobject(ss.str());
+  hobject_t hoid = target.make_temp_hobject(ss.str());
   dout(20) << __func__ << " " << hoid << dendl;
   return hoid;
 }
@@ -7253,7 +7569,7 @@ void PrimaryLogPG::process_copy_chunk(hobject_t oid, ceph_tid_t tid, int r)
     if (cop->temp_cursor.is_initial()) {
       assert(!cop->results.started_temp_obj);
       cop->results.started_temp_obj = true;
-      cop->results.temp_oid = generate_temp_object();
+      cop->results.temp_oid = generate_temp_object(oid);
       dout(20) << __func__ << " using temp " << cop->results.temp_oid << dendl;
     }
     ObjectContextRef tempobc = get_object_context(cop->results.temp_oid, true);
@@ -11016,14 +11332,43 @@ uint64_t PrimaryLogPG::recover_backfill(
     add_object_context_to_pg_stat(obc, &stat);
     pending_backfill_updates[*i] = stat;
   }
-  for (unsigned i = 0; i < to_remove.size(); ++i) {
-    handle.reset_tp_timeout();
+  if (HAVE_FEATURE(get_min_upacting_features(), SERVER_LUMINOUS)) {
+    map<pg_shard_t,MOSDPGBackfillRemove*> reqs;
+    for (unsigned i = 0; i < to_remove.size(); ++i) {
+      handle.reset_tp_timeout();
+      const hobject_t& oid = to_remove[i].get<0>();
+      eversion_t v = to_remove[i].get<1>();
+      pg_shard_t peer = to_remove[i].get<2>();
+      MOSDPGBackfillRemove *m;
+      auto it = reqs.find(peer);
+      if (it != reqs.end()) {
+	m = it->second;
+      } else {
+	m = reqs[peer] = new MOSDPGBackfillRemove(
+	  spg_t(info.pgid.pgid, peer.shard),
+	  get_osdmap()->get_epoch());
+      }
+      m->ls.push_back(make_pair(oid, v));
 
-    // ordered before any subsequent updates
-    send_remove_op(to_remove[i].get<0>(), to_remove[i].get<1>(), to_remove[i].get<2>());
+      if (oid <= last_backfill_started)
+	pending_backfill_updates[oid]; // add empty stat!
+    }
+    for (auto p : reqs) {
+      osd->send_message_osd_cluster(p.first.osd, p.second,
+				    get_osdmap()->get_epoch());
+    }
+  } else {
+    // for jewel targets
+    for (unsigned i = 0; i < to_remove.size(); ++i) {
+      handle.reset_tp_timeout();
 
-    if (to_remove[i].get<0>() <= last_backfill_started)
-      pending_backfill_updates[to_remove[i].get<0>()]; // add empty stat!
+      // ordered before any subsequent updates
+      send_remove_op(to_remove[i].get<0>(), to_remove[i].get<1>(),
+		     to_remove[i].get<2>());
+
+      if (to_remove[i].get<0>() <= last_backfill_started)
+	pending_backfill_updates[to_remove[i].get<0>()]; // add empty stat!
+    }
   }
 
   PGBackend::RecoveryHandle *h = pgbackend->open_recovery_op();
@@ -12935,6 +13280,11 @@ void PrimaryLogPG::_scrub_finish()
   }
 }
 
+bool PrimaryLogPG::check_osdmap_full(const set<pg_shard_t> &missing_on)
+{
+    return osd->check_osdmap_full(missing_on);
+}
+
 /*---SnapTrimmer Logging---*/
 #undef dout_prefix
 #define dout_prefix *_dout << pg->gen_prefix() 
@@ -13174,6 +13524,10 @@ int PrimaryLogPG::getattrs_maybe_cache(
     tmp.swap(*out);
   }
   return r;
+}
+
+bool PrimaryLogPG::check_failsafe_full(ostream &ss) {
+    return osd->check_failsafe_full(ss);
 }
 
 void intrusive_ptr_add_ref(PrimaryLogPG *pg) { pg->get("intptr"); }

@@ -151,6 +151,12 @@ enum {
 };
 /** @} */
 
+typedef enum {
+	LIBRADOS_CHECKSUM_TYPE_XXHASH32 = 0,
+	LIBRADOS_CHECKSUM_TYPE_XXHASH64 = 1,
+	LIBRADOS_CHECKSUM_TYPE_CRC32C   = 2
+} rados_checksum_type_t;
+
 /*
  * snap id contants
  */
@@ -311,7 +317,7 @@ struct rados_cluster_stat_t {
  * - Creating objects: rados_write_op_create()
  * - IO on objects: rados_write_op_append(), rados_write_op_write(), rados_write_op_zero
  *   rados_write_op_write_full(), rados_write_op_writesame(), rados_write_op_remove,
- *   rados_write_op_truncate(), rados_write_op_zero()
+ *   rados_write_op_truncate(), rados_write_op_zero(), rados_write_op_cmpext()
  * - Hints: rados_write_op_set_alloc_hint()
  * - Performing the operation: rados_write_op_operate(), rados_aio_write_op_operate()
  */
@@ -330,7 +336,8 @@ typedef void *rados_write_op_t;
  *   rados_read_op_omap_cmp()
  * - Object properties: rados_read_op_stat(), rados_read_op_assert_exists(),
  *   rados_read_op_assert_version()
- * - IO on objects: rados_read_op_read()
+ * - IO on objects: rados_read_op_read(), rados_read_op_checksum(),
+ *   rados_read_op_cmpext()
  * - Custom operations: rados_read_op_exec(), rados_read_op_exec_user_buf()
  * - Request properties: rados_read_op_set_flags()
  * - Performing the operation: rados_read_op_operate(),
@@ -1453,6 +1460,42 @@ CEPH_RADOS_API int rados_read(rados_ioctx_t io, const char *oid, char *buf,
                               size_t len, uint64_t off);
 
 /**
+ * Compute checksum from object data
+ *
+ * The io context determines the snapshot to checksum, if any was set
+ * by rados_ioctx_snap_set_read(). The length of the init_value and
+ * resulting checksum are dependent upon the checksum type:
+ *
+ *    XXHASH64: le64
+ *    XXHASH32: le32
+ *    CRC32C:	le32
+ *
+ * The checksum result is encoded the following manner:
+ *
+ *    le32 num_checksum_chunks
+ *    {
+ *      leXX checksum for chunk (where XX = appropriate size for the checksum type)
+ *    } * num_checksum_chunks
+ *
+ * @param io the context in which to perform the checksum
+ * @param oid the name of the object to checksum
+ * @param type the checksum algorithm to utilize
+ * @param init_value the init value for the algorithm
+ * @param init_value_len the length of the init value
+ * @param len the number of bytes to checksum
+ * @param off the offset to start checksuming in the object
+ * @param chunk_size optional length-aligned chunk size for checksums
+ * @param pchecksum where to store the checksum result
+ * @param checksum_len the number of bytes available for the result
+ * @return negative error code on failure
+ */
+CEPH_RADOS_API int rados_checksum(rados_ioctx_t io, const char *oid,
+				  rados_checksum_type_t type,
+				  const char *init_value, size_t init_value_len,
+				  size_t len, uint64_t off, size_t chunk_size,
+				  char *pchecksum, size_t checksum_len);
+
+/**
  * Delete an object
  *
  * @note This does not delete any snapshots of the object.
@@ -1476,6 +1519,21 @@ CEPH_RADOS_API int rados_remove(rados_ioctx_t io, const char *oid);
  */
 CEPH_RADOS_API int rados_trunc(rados_ioctx_t io, const char *oid,
                                uint64_t size);
+
+/**
+ * Compare an on-disk object range with a buffer
+ *
+ * @param io the context in which to perform the comparison
+ * @param o name of the object
+ * @param cmp_buf buffer containing bytes to be compared with object contents
+ * @param cmp_len length to compare and size of @cmp_buf in bytes
+ * @param off object byte offset at which to start the comparison
+ * @returns 0 on success, negative error code on failure,
+ *  (-MAX_ERRNO - mismatch_off) on mismatch
+ */
+CEPH_RADOS_API int rados_cmpext(rados_ioctx_t io, const char *o,
+                                const char *cmp_buf, size_t cmp_len,
+                                uint64_t off);
 
 /**
  * @name Xattrs
@@ -2067,6 +2125,24 @@ CEPH_RADOS_API int rados_aio_flush_async(rados_ioctx_t io,
 CEPH_RADOS_API int rados_aio_stat(rados_ioctx_t io, const char *o,
 		                  rados_completion_t completion,
 		                  uint64_t *psize, time_t *pmtime);
+
+/**
+ * Asynchronously compare an on-disk object range with a buffer
+ *
+ * @param io the context in which to perform the comparison
+ * @param o the name of the object to compare with
+ * @param completion what to do when the comparison is complete
+ * @param cmp_buf buffer containing bytes to be compared with object contents
+ * @param cmp_len length to compare and size of @cmp_buf in bytes
+ * @param off object byte offset at which to start the comparison
+ * @returns 0 on success, negative error code on failure,
+ *  (-MAX_ERRNO - mismatch_off) on mismatch
+ */
+CEPH_RADOS_API int rados_aio_cmpext(rados_ioctx_t io, const char *o,
+                                    rados_completion_t completion,
+                                    const char *cmp_buf,
+                                    size_t cmp_len,
+                                    uint64_t off);
 
 /**
  * Cancel async operation
@@ -2681,6 +2757,22 @@ CEPH_RADOS_API void rados_write_op_assert_exists(rados_write_op_t write_op);
 CEPH_RADOS_API void rados_write_op_assert_version(rados_write_op_t write_op, uint64_t ver);
 
 /**
+ * Ensure that given object range (extent) satisfies comparison.
+ *
+ * @param write_op operation to add this action to
+ * @param cmp_buf buffer containing bytes to be compared with object contents
+ * @param cmp_len length to compare and size of @cmp_buf in bytes
+ * @param off object byte offset at which to start the comparison
+ * @param prval returned result of comparison, 0 on success, negative error code
+ *  on failure, (-MAX_ERRNO - mismatch_off) on mismatch
+ */
+CEPH_RADOS_API void rados_write_op_cmpext(rados_write_op_t write_op,
+                                          const char *cmp_buf,
+                                          size_t cmp_len,
+                                          uint64_t off,
+                                          int *prval);
+
+/**
  * Ensure that given xattr satisfies comparison.
  * If the comparison is not satisfied, the return code of the
  * operation will be -ECANCELED
@@ -2982,6 +3074,22 @@ CEPH_RADOS_API void rados_read_op_assert_exists(rados_read_op_t read_op);
 CEPH_RADOS_API void rados_read_op_assert_version(rados_read_op_t read_op, uint64_t ver);
 
 /**
+ * Ensure that given object range (extent) satisfies comparison.
+ *
+ * @param read_op operation to add this action to
+ * @param cmp_buf buffer containing bytes to be compared with object contents
+ * @param cmp_len length to compare and size of @cmp_buf in bytes
+ * @param off object byte offset at which to start the comparison
+ * @param prval returned result of comparison, 0 on success, negative error code
+ *  on failure, (-MAX_ERRNO - mismatch_off) on mismatch
+ */
+CEPH_RADOS_API void rados_read_op_cmpext(rados_read_op_t read_op,
+                                         const char *cmp_buf,
+                                         size_t cmp_len,
+                                         uint64_t off,
+                                         int *prval);
+
+/**
  * Ensure that the an xattr satisfies a comparison
  * If the comparison is not satisfied, the return code of the
  * operation will be -ECANCELED
@@ -3061,6 +3169,29 @@ CEPH_RADOS_API void rados_read_op_read(rados_read_op_t read_op,
 			               char *buffer,
 			               size_t *bytes_read,
 			               int *prval);
+
+/**
+ * Compute checksum from object data
+ *
+ * @param read_op operation to add this action to
+ * @param oid the name of the object to checksum
+ * @param type the checksum algorithm to utilize
+ * @param init_value the init value for the algorithm
+ * @param init_value_len the length of the init value
+ * @param len the number of bytes to checksum
+ * @param off the offset to start checksuming in the object
+ * @param chunk_size optional length-aligned chunk size for checksums
+ * @param pchecksum where to store the checksum result for this action
+ * @param checksum_len the number of bytes available for the result
+ * @param prval where to store the return value for this action
+ */
+CEPH_RADOS_API void rados_read_op_checksum(rados_read_op_t read_op,
+					   rados_checksum_type_t type,
+					   const char *init_value,
+					   size_t init_value_len,
+					   uint64_t offset, size_t len,
+					   size_t chunk_size, char *pchecksum,
+					   size_t checksum_len, int *prval);
 
 /**
  * Execute an OSD class method on an object

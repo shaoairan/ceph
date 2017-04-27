@@ -1170,7 +1170,7 @@ void rgw::keystone::TokenEnvelope::Token::decode_json(JSONObj *obj)
   JSONDecoder::decode_json("expires", expires_iso8601, obj, true);
 
   if (parse_iso8601(expires_iso8601.c_str(), &t)) {
-    expires = timegm(&t);
+    expires = internal_timegm(&t);
   } else {
     expires = 0;
     throw JSONDecoder::err("Failed to parse ISO8601 expiration date from Keystone response.");
@@ -1215,7 +1215,7 @@ void rgw::keystone::TokenEnvelope::decode_v3(JSONObj* const root_obj)
 
   struct tm t;
   if (parse_iso8601(expires_iso8601.c_str(), &t)) {
-    token.expires = timegm(&t);
+    token.expires = internal_timegm(&t);
   } else {
     token.expires = 0;
     throw JSONDecoder::err("Failed to parse ISO8601 expiration date"
@@ -1290,6 +1290,7 @@ void rgw_meta_sync_marker::decode_json(JSONObj *obj)
   utime_t ut;
   JSONDecoder::decode_json("timestamp", ut, obj);
   timestamp = ut.to_real_time();
+  JSONDecoder::decode_json("realm_epoch", realm_epoch, obj);
 }
 
 void rgw_meta_sync_marker::dump(Formatter *f) const
@@ -1300,6 +1301,7 @@ void rgw_meta_sync_marker::dump(Formatter *f) const
   encode_json("total_entries", total_entries, f);
   encode_json("pos", pos, f);
   encode_json("timestamp", utime_t(timestamp), f);
+  encode_json("realm_epoch", realm_epoch, f);
 }
 
 void rgw_meta_sync_status::decode_json(JSONObj *obj)
@@ -1375,6 +1377,53 @@ void rgw::keystone::AdminTokenRequestVer3::dump(Formatter* const f) const
   f->close_section();
 }
 
+
+void rgw::keystone::BarbicanTokenRequestVer2::dump(Formatter* const f) const
+{
+  f->open_object_section("token_request");
+    f->open_object_section("auth");
+      f->open_object_section("passwordCredentials");
+        encode_json("username", cct->_conf->rgw_keystone_barbican_user, f);
+        encode_json("password", cct->_conf->rgw_keystone_barbican_password, f);
+      f->close_section();
+      encode_json("tenantName", cct->_conf->rgw_keystone_barbican_tenant, f);
+    f->close_section();
+  f->close_section();
+}
+
+void rgw::keystone::BarbicanTokenRequestVer3::dump(Formatter* const f) const
+{
+  f->open_object_section("token_request");
+    f->open_object_section("auth");
+      f->open_object_section("identity");
+        f->open_array_section("methods");
+          f->dump_string("", "password");
+        f->close_section();
+        f->open_object_section("password");
+          f->open_object_section("user");
+            f->open_object_section("domain");
+              encode_json("name", cct->_conf->rgw_keystone_barbican_domain, f);
+            f->close_section();
+            encode_json("name", cct->_conf->rgw_keystone_barbican_user, f);
+            encode_json("password", cct->_conf->rgw_keystone_barbican_password, f);
+          f->close_section();
+        f->close_section();
+      f->close_section();
+      f->open_object_section("scope");
+        f->open_object_section("project");
+          if (!cct->_conf->rgw_keystone_barbican_project.empty()) {
+            encode_json("name", cct->_conf->rgw_keystone_barbican_project, f);
+          } else {
+            encode_json("name", cct->_conf->rgw_keystone_barbican_tenant, f);
+          }
+          f->open_object_section("domain");
+            encode_json("name", cct->_conf->rgw_keystone_barbican_domain, f);
+          f->close_section();
+        f->close_section();
+      f->close_section();
+    f->close_section();
+  f->close_section();
+}
 
 void RGWOrphanSearchStage::dump(Formatter *f) const
 {

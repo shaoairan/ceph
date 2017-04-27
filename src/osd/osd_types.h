@@ -541,12 +541,6 @@ struct spg_t {
     DECODE_FINISH(bl);
   }
 
-  hobject_t make_temp_hobject(const string& name) const {
-    return hobject_t(object_t(name), "", CEPH_NOSNAP,
-		     pgid.ps(),
-		     hobject_t::POOL_TEMP_START - pgid.pool(), "");
-  }
-
   ghobject_t make_temp_ghobject(const string& name) const {
     return ghobject_t(
       hobject_t(object_t(name), "", CEPH_NOSNAP,
@@ -977,6 +971,7 @@ inline ostream& operator<<(ostream& out, const osd_stat_t& s) {
 #define PG_STATE_PEERED        (1<<25) // peered, cannot go active, can recover
 #define PG_STATE_SNAPTRIM      (1<<26) // trimming snaps
 #define PG_STATE_SNAPTRIM_WAIT (1<<27) // queued to trim snaps
+#define PG_STATE_RECOVERY_TOOFULL (1<<28) // recovery can't proceed: too full
 
 std::string pg_state_string(int state);
 std::string pg_vector_string(const vector<int32_t> &a);
@@ -1453,7 +1448,7 @@ public:
   }
   uint64_t required_alignment() const { return stripe_width; }
 
-  bool is_hacky_ecoverwrites() const {
+  bool allows_ecoverwrites() const {
     return has_flag(FLAG_EC_OVERWRITES);
   }
 
@@ -2826,27 +2821,27 @@ struct pg_log_entry_t {
   static const char *get_op_name(int op) {
     switch (op) {
     case MODIFY:
-      return "modify  ";
+      return "modify";
     case PROMOTE:
-      return "promote ";
+      return "promote";
     case CLONE:
-      return "clone   ";
+      return "clone";
     case DELETE:
-      return "delete  ";
+      return "delete";
     case BACKLOG:
-      return "backlog ";
+      return "backlog";
     case LOST_REVERT:
       return "l_revert";
     case LOST_DELETE:
       return "l_delete";
     case LOST_MARK:
-      return "l_mark  ";
+      return "l_mark";
     case CLEAN:
-      return "clean   ";
+      return "clean";
     case ERROR:
-      return "error   ";
+      return "error";
     default:
-      return "unknown ";
+      return "unknown";
     }
   }
   const char *get_op_name() const {

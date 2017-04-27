@@ -43,6 +43,7 @@ static const std::string SNAPSHOT_SPEC("snap-spec");
 static const std::string IMAGE_OR_SNAPSHOT_SPEC("image-or-snap-spec");
 static const std::string JOURNAL_SPEC("journal-spec");
 static const std::string PATH_NAME("path-name");
+static const std::string IMAGE_ID("image-id");
 
 // optional arguments
 static const std::string CONFIG_PATH("conf");
@@ -70,6 +71,7 @@ static const std::string IMAGE_SIZE("size");
 static const std::string IMAGE_STRIPE_UNIT("stripe-unit");
 static const std::string IMAGE_STRIPE_COUNT("stripe-count");
 static const std::string IMAGE_DATA_POOL("data-pool");
+static const std::string IMAGE_SPARSE_SIZE("sparse-size");
 
 static const std::string JOURNAL_OBJECT_SIZE("journal-object-size");
 static const std::string JOURNAL_SPLAY_WIDTH("journal-splay-width");
@@ -80,6 +82,8 @@ static const std::string FORMAT("format");
 static const std::string PRETTY_FORMAT("pretty-format");
 static const std::string VERBOSE("verbose");
 static const std::string NO_ERROR("no-error");
+
+static const std::string DELAY("delay");
 
 static const std::string LIMIT("limit");
 
@@ -135,6 +139,9 @@ void add_image_option(boost::program_options::options_description *opt,
                       ArgumentModifier modifier,
                       const std::string &desc_suffix = "");
 
+void add_image_id_option(boost::program_options::options_description *opt,
+                         const std::string &desc_suffix = "");
+
 void add_group_option(boost::program_options::options_description *opt,
 		      ArgumentModifier modifier,
 		      const std::string &desc_suffix = "");
@@ -178,6 +185,8 @@ void add_create_journal_options(
   boost::program_options::options_description *opt);
 
 void add_size_option(boost::program_options::options_description *opt);
+
+void add_sparse_size_option(boost::program_options::options_description *opt);
 
 void add_path_options(boost::program_options::options_description *pos,
                       boost::program_options::options_description *opt,

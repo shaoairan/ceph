@@ -243,8 +243,8 @@ typedef ceph::shared_ptr<const OSDMap> OSDMapRef;
 
      virtual uint64_t min_peer_features() const = 0;
 
-     virtual hobject_t get_temp_recovery_object(eversion_t version,
-						snapid_t snap) = 0;
+     virtual hobject_t get_temp_recovery_object(const hobject_t& target,
+						eversion_t version) = 0;
 
      virtual void send_message_osd_cluster(
        int peer, Message *m, epoch_t from_epoch) = 0;
@@ -260,6 +260,10 @@ typedef ceph::shared_ptr<const OSDMap> OSDMapRef;
      virtual ceph_tid_t get_tid() = 0;
 
      virtual LogClientTemp clog_error() = 0;
+
+     virtual bool check_failsafe_full(ostream &ss) = 0;
+
+     virtual bool check_osdmap_full(const set<pg_shard_t> &missing_on) = 0;
 
      virtual ~Listener() {}
    };

@@ -36,6 +36,7 @@
 #include "messages/MOSDPGTrim.h"
 #include "messages/MOSDPGScan.h"
 #include "messages/MOSDPGBackfill.h"
+#include "messages/MOSDPGBackfillRemove.h"
 #include "messages/MBackfillReserve.h"
 #include "messages/MRecoveryReserve.h"
 #include "messages/MOSDPGPush.h"
@@ -48,11 +49,13 @@
 #include "messages/MOSDPGUpdateLogMissing.h"
 #include "messages/MOSDPGUpdateLogMissingReply.h"
 #include "messages/MOSDBackoff.h"
-
+#include "messages/MOSDScrubReserve.h"
 #include "messages/MOSDSubOp.h"
 #include "messages/MOSDRepOp.h"
 #include "messages/MOSDSubOpReply.h"
 #include "messages/MOSDRepOpReply.h"
+#include "messages/MOSDRepScrubMap.h"
+
 #include "common/BackTrace.h"
 #include "common/EventTrace.h"
 
@@ -1877,7 +1880,7 @@ bool PG::op_has_sufficient_caps(OpRequestRef& op)
 
   const MOSDOp *req = static_cast<const MOSDOp*>(op->get_req());
 
-  Session *session = (Session *)req->get_connection()->get_priv();
+  Session *session = static_cast<Session*>(req->get_connection()->get_priv());
   if (!session) {
     dout(0) << "op_has_sufficient_caps: no session for op " << *req << dendl;
     return false;
@@ -2006,6 +2009,8 @@ bool PG::queue_scrub()
   if (is_scrubbing()) {
     return false;
   }
+  scrubber.priority = scrubber.must_scrub ?
+         cct->_conf->osd_requested_scrub_priority : get_scrub_priority();
   scrubber.must_scrub = false;
   state_set(PG_STATE_SCRUBBING);
   if (scrubber.must_deep_scrub) {
@@ -3284,6 +3289,7 @@ void PG::read_state(ObjectStore *store, bufferlist &bl)
     ghobject_t(info_struct_v < 8 ? OSD::make_pg_log_oid(pg_id) : pgmeta_oid),
     info,
     oss,
+    cct->_conf->osd_ignore_stale_divergent_priors,
     cct->_conf->osd_debug_verify_missing_on_start);
   if (oss.tellp())
     osd->clog->error() << oss.rdbuf();
@@ -3636,8 +3642,39 @@ void PG::unreg_next_scrub()
   }
 }
 
+void PG::do_replica_scrub_map(OpRequestRef op)
+{
+  const MOSDRepScrubMap *m = static_cast<const MOSDRepScrubMap*>(op->get_req());
+  dout(7) << __func__ << " " << *m << dendl;
+  if (m->map_epoch < info.history.same_interval_since) {
+    dout(10) << __func__ << " discarding old from "
+	     << m->map_epoch << " < " << info.history.same_interval_since
+	     << dendl;
+    return;
+  }
+  if (!scrubber.is_chunky_scrub_active()) {
+    dout(10) << __func__ << " scrub isn't active" << dendl;
+    return;
+  }
+
+  op->mark_started();
+
+  bufferlist::iterator p = const_cast<bufferlist&>(m->get_data()).begin();
+  scrubber.received_maps[m->from].decode(p, info.pgid.pool());
+  dout(10) << "map version is "
+	   << scrubber.received_maps[m->from].valid_through
+	   << dendl;
+
+  --scrubber.waiting_on;
+  scrubber.waiting_on_whom.erase(m->from);
+  if (scrubber.waiting_on == 0) {
+    requeue_scrub();
+  }
+}
+
 void PG::sub_op_scrub_map(OpRequestRef op)
 {
+  // for legacy jewel compatibility only
   const MOSDSubOp *m = static_cast<const MOSDSubOp *>(op->get_req());
   assert(m->get_type() == MSG_OSD_SUBOP);
   dout(7) << "sub_op_scrub_map" << dendl;
@@ -3690,67 +3727,75 @@ void PG::_request_scrub_map(
     replica.osd, repscrubop, get_osdmap()->get_epoch());
 }
 
-void PG::sub_op_scrub_reserve(OpRequestRef op)
+void PG::handle_scrub_reserve_request(OpRequestRef op)
 {
-  const MOSDSubOp *m = static_cast<const MOSDSubOp*>(op->get_req());
-  assert(m->get_type() == MSG_OSD_SUBOP);
-  dout(7) << "sub_op_scrub_reserve" << dendl;
-
+  dout(7) << __func__ << " " << *op->get_req() << dendl;
+  op->mark_started();
   if (scrubber.reserved) {
-    dout(10) << "Ignoring reserve request: Already reserved" << dendl;
+    dout(10) << __func__ << " ignoring reserve request: Already reserved"
+	     << dendl;
     return;
   }
-
-  op->mark_started();
-
   scrubber.reserved = osd->inc_scrubs_pending();
-
-  MOSDSubOpReply *reply = new MOSDSubOpReply(
-    m, pg_whoami, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ACK);
-  ::encode(scrubber.reserved, reply->get_data());
-  osd->send_message_osd_cluster(reply, m->get_connection());
+  if (op->get_req()->get_type() == MSG_OSD_SCRUB_RESERVE) {
+    const MOSDScrubReserve *m =
+      static_cast<const MOSDScrubReserve*>(op->get_req());
+    Message *reply = new MOSDScrubReserve(
+      spg_t(info.pgid.pgid, primary.shard),
+      m->map_epoch,
+      scrubber.reserved ? MOSDScrubReserve::GRANT : MOSDScrubReserve::REJECT,
+      pg_whoami);
+    osd->send_message_osd_cluster(reply, op->get_req()->get_connection());
+  } else {
+    // for jewel compat only
+    const MOSDSubOp *req = static_cast<const MOSDSubOp*>(op->get_req());
+    assert(req->get_type() == MSG_OSD_SUBOP);
+    MOSDSubOpReply *reply = new MOSDSubOpReply(
+      req, pg_whoami, 0, get_osdmap()->get_epoch(), CEPH_OSD_FLAG_ACK);
+    ::encode(scrubber.reserved, reply->get_data());
+    osd->send_message_osd_cluster(reply, op->get_req()->get_connection());
+  }
 }
 
-void PG::sub_op_scrub_reserve_reply(OpRequestRef op)
+void PG::handle_scrub_reserve_grant(OpRequestRef op, pg_shard_t from)
 {
-  const MOSDSubOpReply *reply = static_cast<const MOSDSubOpReply*>(op->get_req());
-  assert(reply->get_type() == MSG_OSD_SUBOPREPLY);
-  dout(7) << "sub_op_scrub_reserve_reply" << dendl;
-
+  dout(7) << __func__ << " " << *op->get_req() << dendl;
+  op->mark_started();
   if (!scrubber.reserved) {
     dout(10) << "ignoring obsolete scrub reserve reply" << dendl;
     return;
   }
-
-  op->mark_started();
-
-  pg_shard_t from = reply->from;
-  bufferlist::iterator p = const_cast<bufferlist&>(reply->get_data()).begin();
-  bool reserved;
-  ::decode(reserved, p);
-
   if (scrubber.reserved_peers.find(from) != scrubber.reserved_peers.end()) {
     dout(10) << " already had osd." << from << " reserved" << dendl;
   } else {
-    if (reserved) {
-      dout(10) << " osd." << from << " scrub reserve = success" << dendl;
-      scrubber.reserved_peers.insert(from);
-    } else {
-      /* One decline stops this pg from being scheduled for scrubbing. */
-      dout(10) << " osd." << from << " scrub reserve = fail" << dendl;
-      scrubber.reserve_failed = true;
-    }
+    dout(10) << " osd." << from << " scrub reserve = success" << dendl;
+    scrubber.reserved_peers.insert(from);
     sched_scrub();
   }
 }
 
-void PG::sub_op_scrub_unreserve(OpRequestRef op)
+void PG::handle_scrub_reserve_reject(OpRequestRef op, pg_shard_t from)
 {
-  assert(op->get_req()->get_type() == MSG_OSD_SUBOP);
-  dout(7) << "sub_op_scrub_unreserve" << dendl;
-
+  dout(7) << __func__ << " " << *op->get_req() << dendl;
   op->mark_started();
+  if (!scrubber.reserved) {
+    dout(10) << "ignoring obsolete scrub reserve reply" << dendl;
+    return;
+  }
+  if (scrubber.reserved_peers.find(from) != scrubber.reserved_peers.end()) {
+    dout(10) << " already had osd." << from << " reserved" << dendl;
+  } else {
+    /* One decline stops this pg from being scheduled for scrubbing. */
+    dout(10) << " osd." << from << " scrub reserve = fail" << dendl;
+    scrubber.reserve_failed = true;
+    sched_scrub();
+  }
+}
 
+void PG::handle_scrub_reserve_release(OpRequestRef op)
+{
+  dout(7) << __func__ << " " << *op->get_req() << dendl;
+  op->mark_started();
   clear_scrub_reserved();
 }
 
@@ -3767,12 +3812,22 @@ void PG::reject_reservation()
 
 void PG::schedule_backfill_full_retry()
 {
-  Mutex::Locker lock(osd->backfill_request_lock);
-  osd->backfill_request_timer.add_event_after(
+  Mutex::Locker lock(osd->recovery_request_lock);
+  osd->recovery_request_timer.add_event_after(
     cct->_conf->osd_backfill_retry_interval,
     new QueuePeeringEvt<RequestBackfill>(
       this, get_osdmap()->get_epoch(),
       RequestBackfill()));
+}
+
+void PG::schedule_recovery_full_retry()
+{
+  Mutex::Locker lock(osd->recovery_request_lock);
+  osd->recovery_request_timer.add_event_after(
+    cct->_conf->osd_recovery_retry_interval,
+    new QueuePeeringEvt<DoRecovery>(
+      this, get_osdmap()->get_epoch(),
+      DoRecovery()));
 }
 
 void PG::clear_scrub_reserved()
@@ -3794,17 +3849,27 @@ void PG::scrub_reserve_replicas()
        ++i) {
     if (*i == pg_whoami) continue;
     dout(10) << "scrub requesting reserve from osd." << *i << dendl;
-    vector<OSDOp> scrub(1);
-    scrub[0].op.op = CEPH_OSD_OP_SCRUB_RESERVE;
-    hobject_t poid;
-    eversion_t v;
-    osd_reqid_t reqid;
-    MOSDSubOp *subop = new MOSDSubOp(
-      reqid, pg_whoami, spg_t(info.pgid.pgid, i->shard), poid, 0,
-      get_osdmap()->get_epoch(), osd->get_tid(), v);
-    subop->ops = scrub;
-    osd->send_message_osd_cluster(
-      i->osd, subop, get_osdmap()->get_epoch());
+    if (HAVE_FEATURE(get_min_acting_features(), SERVER_LUMINOUS)) {
+      osd->send_message_osd_cluster(
+	i->osd,
+	new MOSDScrubReserve(spg_t(info.pgid.pgid, i->shard),
+			     get_osdmap()->get_epoch(),
+			     MOSDScrubReserve::REQUEST, pg_whoami),
+	get_osdmap()->get_epoch());
+    } else {
+      // for jewel compat only
+      vector<OSDOp> scrub(1);
+      scrub[0].op.op = CEPH_OSD_OP_SCRUB_RESERVE;
+      hobject_t poid;
+      eversion_t v;
+      osd_reqid_t reqid;
+      MOSDSubOp *subop = new MOSDSubOp(
+	reqid, pg_whoami, spg_t(info.pgid.pgid, i->shard), poid, 0,
+	get_osdmap()->get_epoch(), osd->get_tid(), v);
+      subop->ops = scrub;
+      osd->send_message_osd_cluster(
+	i->osd, subop, get_osdmap()->get_epoch());
+    }
   }
 }
 
@@ -3816,16 +3881,26 @@ void PG::scrub_unreserve_replicas()
        ++i) {
     if (*i == pg_whoami) continue;
     dout(10) << "scrub requesting unreserve from osd." << *i << dendl;
-    vector<OSDOp> scrub(1);
-    scrub[0].op.op = CEPH_OSD_OP_SCRUB_UNRESERVE;
-    hobject_t poid;
-    eversion_t v;
-    osd_reqid_t reqid;
-    MOSDSubOp *subop = new MOSDSubOp(
-      reqid, pg_whoami, spg_t(info.pgid.pgid, i->shard), poid, 0,
-      get_osdmap()->get_epoch(), osd->get_tid(), v);
-    subop->ops = scrub;
-    osd->send_message_osd_cluster(i->osd, subop, get_osdmap()->get_epoch());
+    if (HAVE_FEATURE(get_min_acting_features(), SERVER_LUMINOUS)) {
+      osd->send_message_osd_cluster(
+	i->osd,
+	new MOSDScrubReserve(spg_t(info.pgid.pgid, i->shard),
+			     get_osdmap()->get_epoch(),
+			     MOSDScrubReserve::RELEASE, pg_whoami),
+	get_osdmap()->get_epoch());
+    } else {
+      // for jewel compat only
+      vector<OSDOp> scrub(1);
+      scrub[0].op.op = CEPH_OSD_OP_SCRUB_UNRESERVE;
+      hobject_t poid;
+      eversion_t v;
+      osd_reqid_t reqid;
+      MOSDSubOp *subop = new MOSDSubOp(
+	reqid, pg_whoami, spg_t(info.pgid.pgid, i->shard), poid, 0,
+	get_osdmap()->get_epoch(), osd->get_tid(), v);
+      subop->ops = scrub;
+      osd->send_message_osd_cluster(i->osd, subop, get_osdmap()->get_epoch());
+    }
   }
 }
 
@@ -4075,24 +4150,33 @@ void PG::replica_scrub(
     map, start, end, msg->deep, msg->seed,
     handle);
 
-  vector<OSDOp> scrub(1);
-  scrub[0].op.op = CEPH_OSD_OP_SCRUB_MAP;
-  hobject_t poid;
-  eversion_t v;
-  osd_reqid_t reqid;
-  MOSDSubOp *subop = new MOSDSubOp(
-    reqid,
-    pg_whoami,
-    spg_t(info.pgid.pgid, get_primary().shard),
-    poid,
-    0,
-    msg->map_epoch,
-    osd->get_tid(),
-    v);
-  ::encode(map, subop->get_data());
-  subop->ops = scrub;
-
-  osd->send_message_osd_cluster(subop, msg->get_connection());
+  if (HAVE_FEATURE(acting_features, SERVER_LUMINOUS)) {
+    MOSDRepScrubMap *reply = new MOSDRepScrubMap(
+      spg_t(info.pgid.pgid, get_primary().shard),
+      msg->map_epoch,
+      pg_whoami);
+    ::encode(map, reply->get_data());
+    osd->send_message_osd_cluster(reply, msg->get_connection());
+  } else {
+    // for jewel compatibility
+    vector<OSDOp> scrub(1);
+    scrub[0].op.op = CEPH_OSD_OP_SCRUB_MAP;
+    hobject_t poid;
+    eversion_t v;
+    osd_reqid_t reqid;
+    MOSDSubOp *subop = new MOSDSubOp(
+      reqid,
+      pg_whoami,
+      spg_t(info.pgid.pgid, get_primary().shard),
+      poid,
+      0,
+      msg->map_epoch,
+      osd->get_tid(),
+      v);
+    ::encode(map, subop->get_data());
+    subop->ops = scrub;
+    osd->send_message_osd_cluster(subop, msg->get_connection());
+  }
 }
 
 /* Scrub:
@@ -5166,6 +5250,7 @@ void PG::start_peering_interval(
   state_clear(PG_STATE_PEERED);
   state_clear(PG_STATE_DOWN);
   state_clear(PG_STATE_RECOVERY_WAIT);
+  state_clear(PG_STATE_RECOVERY_TOOFULL);
   state_clear(PG_STATE_RECOVERING);
 
   peer_purged.clear();
@@ -5502,6 +5587,10 @@ bool PG::can_discard_request(OpRequestRef& op)
     return can_discard_replica_op<MOSDECSubOpReadReply, MSG_OSD_EC_READ_REPLY>(op);
   case MSG_OSD_REP_SCRUB:
     return can_discard_replica_op<MOSDRepScrub, MSG_OSD_REP_SCRUB>(op);
+  case MSG_OSD_SCRUB_RESERVE:
+    return can_discard_replica_op<MOSDScrubReserve, MSG_OSD_SCRUB_RESERVE>(op);
+  case MSG_OSD_REP_SCRUBMAP:
+    return can_discard_replica_op<MOSDRepScrubMap, MSG_OSD_REP_SCRUBMAP>(op);
   case MSG_OSD_PG_UPDATE_LOG_MISSING:
     return can_discard_replica_op<
       MOSDPGUpdateLogMissing, MSG_OSD_PG_UPDATE_LOG_MISSING>(op);
@@ -5513,6 +5602,9 @@ bool PG::can_discard_request(OpRequestRef& op)
     return can_discard_scan(op);
   case MSG_OSD_PG_BACKFILL:
     return can_discard_backfill(op);
+  case MSG_OSD_PG_BACKFILL_REMOVE:
+    return can_discard_replica_op<MOSDPGBackfillRemove,
+				  MSG_OSD_PG_BACKFILL_REMOVE>(op);
   }
   return true;
 }
@@ -5558,6 +5650,11 @@ bool PG::op_must_wait_for_map(epoch_t cur_epoch, OpRequestRef& op)
       cur_epoch,
       static_cast<const MOSDPGBackfill*>(op->get_req())->map_epoch);
 
+  case MSG_OSD_PG_BACKFILL_REMOVE:
+    return !have_same_or_newer_map(
+      cur_epoch,
+      static_cast<const MOSDPGBackfillRemove*>(op->get_req())->map_epoch);
+
   case MSG_OSD_PG_PUSH:
     return !have_same_or_newer_map(
       cur_epoch,
@@ -5597,6 +5694,16 @@ bool PG::op_must_wait_for_map(epoch_t cur_epoch, OpRequestRef& op)
     return !have_same_or_newer_map(
       cur_epoch,
       static_cast<const MOSDRepScrub*>(op->get_req())->map_epoch);
+
+  case MSG_OSD_SCRUB_RESERVE:
+    return !have_same_or_newer_map(
+      cur_epoch,
+      static_cast<const MOSDScrubReserve*>(op->get_req())->map_epoch);
+
+  case MSG_OSD_REP_SCRUBMAP:
+    return !have_same_or_newer_map(
+      cur_epoch,
+      static_cast<const MOSDRepScrubMap*>(op->get_req())->map_epoch);
 
   case MSG_OSD_PG_UPDATE_LOG_MISSING:
     return !have_same_or_newer_map(
@@ -5759,6 +5866,24 @@ void PG::update_store_with_options()
   }
 }
 
+void PG::update_store_on_load()
+{
+  if (osd->store->get_type() == "filestore") {
+    // legacy filestore didn't store collection bit width; fix.
+    int bits = osd->store->collection_bits(coll);
+    if (bits < 0) {
+      if (coll.is_meta())
+	bits = 0;
+      else
+	bits = info.pgid.get_split_bits(pool.info.get_pg_num());
+      lderr(cct) << __func__ << " setting bit width to " << bits << dendl;
+      ObjectStore::Transaction t;
+      t.collection_set_bits(coll, bits);
+      osd->store->apply_transaction(osr.get(), std::move(t));
+    }
+  }
+}
+
 std::ostream& operator<<(std::ostream& oss,
 			 const struct PG::PriorSet &prior)
 {
@@ -5798,6 +5923,8 @@ boost::statechart::result PG::RecoveryState::Initial::react(const Load& l)
   // do we tell someone we're here?
   pg->send_notify = (!pg->is_primary());
   pg->update_store_with_options();
+
+  pg->update_store_on_load();
 
   return transit< Reset >();
 }
@@ -6375,6 +6502,24 @@ void PG::RecoveryState::NotBackfilling::exit()
   pg->osd->recoverystate_perf->tinc(rs_notbackfilling_latency, dur);
 }
 
+/*----NotRecovering------*/
+PG::RecoveryState::NotRecovering::NotRecovering(my_context ctx)
+  : my_base(ctx),
+    NamedState(context< RecoveryMachine >().pg->cct, "Started/Primary/Active/NotRecovering")
+{
+  context< RecoveryMachine >().log_enter(state_name);
+  PG *pg = context< RecoveryMachine >().pg;
+  pg->publish_stats_to_osd();
+}
+
+void PG::RecoveryState::NotRecovering::exit()
+{
+  context< RecoveryMachine >().log_exit(state_name, enter_time);
+  PG *pg = context< RecoveryMachine >().pg;
+  utime_t dur = ceph_clock_now() - enter_time;
+  pg->osd->recoverystate_perf->tinc(rs_notrecovering_latency, dur);
+}
+
 /*---RepNotRecovering----*/
 PG::RecoveryState::RepNotRecovering::RepNotRecovering(my_context ctx)
   : my_base(ctx),
@@ -6441,18 +6586,17 @@ boost::statechart::result
 PG::RecoveryState::RepNotRecovering::react(const RequestBackfillPrio &evt)
 {
   PG *pg = context< RecoveryMachine >().pg;
-  double ratio, max_ratio;
+  ostringstream ss;
 
   if (pg->cct->_conf->osd_debug_reject_backfill_probability > 0 &&
       (rand()%1000 < (pg->cct->_conf->osd_debug_reject_backfill_probability*1000.0))) {
     ldout(pg->cct, 10) << "backfill reservation rejected: failure injection"
 		       << dendl;
     post_event(RemoteReservationRejected());
-  } else if (pg->osd->too_full_for_backfill(&ratio, &max_ratio) &&
-      !pg->cct->_conf->osd_debug_skip_full_check_in_backfill_reservation) {
-    ldout(pg->cct, 10) << "backfill reservation rejected: full ratio is "
-		       << ratio << ", which is greater than max allowed ratio "
-		       << max_ratio << dendl;
+  } else if (!pg->cct->_conf->osd_debug_skip_full_check_in_backfill_reservation &&
+      pg->osd->check_backfill_full(ss)) {
+    ldout(pg->cct, 10) << "backfill reservation rejected: "
+		       << ss.str() << dendl;
     post_event(RemoteReservationRejected());
   } else {
     pg->osd->remote_reserver.request_reservation(
@@ -6477,7 +6621,7 @@ PG::RecoveryState::RepWaitBackfillReserved::react(const RemoteBackfillReserved &
 {
   PG *pg = context< RecoveryMachine >().pg;
 
-  double ratio, max_ratio;
+  ostringstream ss;
   if (pg->cct->_conf->osd_debug_reject_backfill_probability > 0 &&
       (rand()%1000 < (pg->cct->_conf->osd_debug_reject_backfill_probability*1000.0))) {
     ldout(pg->cct, 10) << "backfill reservation rejected after reservation: "
@@ -6485,11 +6629,10 @@ PG::RecoveryState::RepWaitBackfillReserved::react(const RemoteBackfillReserved &
     pg->osd->remote_reserver.cancel_reservation(pg->info.pgid);
     post_event(RemoteReservationRejected());
     return discard_event();
-  } else if (pg->osd->too_full_for_backfill(&ratio, &max_ratio) &&
-	     !pg->cct->_conf->osd_debug_skip_full_check_in_backfill_reservation) {
-    ldout(pg->cct, 10) << "backfill reservation rejected after reservation: full ratio is "
-		       << ratio << ", which is greater than max allowed ratio "
-		       << max_ratio << dendl;
+  } else if (!pg->cct->_conf->osd_debug_skip_full_check_in_backfill_reservation &&
+	     pg->osd->check_backfill_full(ss)) {
+    ldout(pg->cct, 10) << "backfill reservation rejected after reservation: "
+		       << ss.str() << dendl;
     pg->osd->remote_reserver.cancel_reservation(pg->info.pgid);
     post_event(RemoteReservationRejected());
     return discard_event();
@@ -6560,6 +6703,15 @@ PG::RecoveryState::WaitLocalRecoveryReserved::WaitLocalRecoveryReserved(my_conte
 {
   context< RecoveryMachine >().log_enter(state_name);
   PG *pg = context< RecoveryMachine >().pg;
+
+  // Make sure all nodes that part of the recovery aren't full
+  if (!pg->cct->_conf->osd_debug_skip_full_check_in_recovery &&
+      pg->osd->check_osdmap_full(pg->actingbackfill)) {
+    post_event(RecoveryTooFull());
+    return;
+  }
+
+  pg->state_clear(PG_STATE_RECOVERY_TOOFULL);
   pg->state_set(PG_STATE_RECOVERY_WAIT);
   pg->osd->local_reserver.request_reservation(
     pg->info.pgid,
@@ -6568,6 +6720,15 @@ PG::RecoveryState::WaitLocalRecoveryReserved::WaitLocalRecoveryReserved(my_conte
       LocalRecoveryReserved()),
     pg->get_recovery_priority());
   pg->publish_stats_to_osd();
+}
+
+boost::statechart::result
+PG::RecoveryState::WaitLocalRecoveryReserved::react(const RecoveryTooFull &evt)
+{
+  PG *pg = context< RecoveryMachine >().pg;
+  pg->state_set(PG_STATE_RECOVERY_TOOFULL);
+  pg->schedule_recovery_full_retry();
+  return transit<NotRecovering>();
 }
 
 void PG::RecoveryState::WaitLocalRecoveryReserved::exit()
@@ -6626,6 +6787,7 @@ PG::RecoveryState::Recovering::Recovering(my_context ctx)
 
   PG *pg = context< RecoveryMachine >().pg;
   pg->state_clear(PG_STATE_RECOVERY_WAIT);
+  pg->state_clear(PG_STATE_RECOVERY_TOOFULL);
   pg->state_set(PG_STATE_RECOVERING);
   pg->publish_stats_to_osd();
   pg->queue_recovery();
@@ -7074,6 +7236,7 @@ void PG::RecoveryState::Active::exit()
   pg->state_clear(PG_STATE_BACKFILL_TOOFULL);
   pg->state_clear(PG_STATE_BACKFILL_WAIT);
   pg->state_clear(PG_STATE_RECOVERY_WAIT);
+  pg->state_clear(PG_STATE_RECOVERY_TOOFULL);
   utime_t dur = ceph_clock_now() - enter_time;
   pg->osd->recoverystate_perf->tinc(rs_active_latency, dur);
   pg->agent_stop();
@@ -7799,6 +7962,7 @@ PG::RecoveryState::GetMissing::GetMissing(my_context ctx)
 
   PG *pg = context< RecoveryMachine >().pg;
   assert(!pg->actingbackfill.empty());
+  eversion_t since;
   for (set<pg_shard_t>::iterator i = pg->actingbackfill.begin();
        i != pg->actingbackfill.end();
        ++i) {
@@ -7832,7 +7996,7 @@ PG::RecoveryState::GetMissing::GetMissing(my_context ctx)
 
     // We pull the log from the peer's last_epoch_started to ensure we
     // get enough log to detect divergent updates.
-    eversion_t since(pi.last_epoch_started, 0);
+    since.epoch = pi.last_epoch_started;
     assert(pi.last_update >= pg->info.log_tail);  // or else choose_acting() did a bad thing
     if (pi.log_tail <= since) {
       ldout(pg->cct, 10) << " requesting log+missing since " << since << " from osd." << *i << dendl;

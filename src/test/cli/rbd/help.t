@@ -86,6 +86,10 @@
       snap rollback (snap revert) Rollback image to snapshot.
       snap unprotect              Allow a snapshot to be deleted.
       status                      Show the status of this image.
+      trash list (trash ls)       List trash images.
+      trash move (trash mv)       Moves an image to the trash.
+      trash remove (trash rm)     Removes an image from trash.
+      trash restore               Restores an image from trash.
       unmap                       Unmap a rbd device that was used by the kernel.
       watch                       Watch events on image.
   
@@ -117,10 +121,10 @@
   Optional arguments
     -p [ --pool ] arg    pool name
     --image arg          image name
-    --io-size arg        IO size (in B/K/M/G/T)
-    --io-threads arg     ios in flight
-    --io-total arg       total size for IO (in B/K/M/G/T)
-    --io-pattern arg     IO pattern (rand or seq)
+    --io-size arg        IO size (in B/K/M/G/T) [default: 4K]
+    --io-threads arg     ios in flight [default: 16]
+    --io-total arg       total size for IO (in B/K/M/G/T) [default: 1G]
+    --io-pattern arg     IO pattern (rand or seq) [default: seq]
     --io-type arg        IO type (read or write)
   
   rbd help children
@@ -196,7 +200,8 @@
                   [--data-pool <data-pool>] 
                   [--journal-splay-width <journal-splay-width>] 
                   [--journal-object-size <journal-object-size>] 
-                  [--journal-pool <journal-pool>] [--no-progress] 
+                  [--journal-pool <journal-pool>] [--sparse-size <sparse-size>] 
+                  [--no-progress] 
                   <source-image-or-snap-spec> <dest-image-spec> 
   
   Copy src image to dest.
@@ -227,6 +232,7 @@
     --journal-splay-width arg    number of active journal objects
     --journal-object-size arg    size of journal objects
     --journal-pool arg           pool for journal objects
+    --sparse-size arg            sparse size in B/K/M [default: 4K]
     --no-progress                disable progress output
   
   Image Features:
@@ -474,7 +480,7 @@
   rbd help group image remove
   usage: rbd group image remove [--group-pool <group-pool>] [--group <group>] 
                                 [--image-pool <image-pool>] [--image <image>] 
-                                [--pool <pool>] 
+                                [--pool <pool>] [--image-id <image-id>] 
                                 <group-spec> <image-spec> 
   
   Remove an image from a consistency group.
@@ -491,6 +497,7 @@
     --image-pool arg     image pool name
     --image arg          image name
     -p [ --pool ] arg    pool name unless overridden
+    --image-id arg       image id
   
   rbd help group list
   usage: rbd group list [--pool <pool>] [--format <format>] [--pretty-format] 
@@ -588,7 +595,8 @@
                     [--stripe-count <stripe-count>] [--data-pool <data-pool>] 
                     [--journal-splay-width <journal-splay-width>] 
                     [--journal-object-size <journal-object-size>] 
-                    [--journal-pool <journal-pool>] [--no-progress] 
+                    [--journal-pool <journal-pool>] 
+                    [--sparse-size <sparse-size>] [--no-progress] 
                     [--export-format <export-format>] [--pool <pool>] 
                     [--image <image>] 
                     <path-name> <dest-image-spec> 
@@ -620,6 +628,7 @@
     --journal-splay-width arg number of active journal objects
     --journal-object-size arg size of journal objects
     --journal-pool arg        pool for journal objects
+    --sparse-size arg         sparse size in B/K/M [default: 4K]
     --no-progress             disable progress output
     --export-format arg       format of image file
     -p [ --pool ] arg         pool name (deprecated)
@@ -632,7 +641,7 @@
   
   rbd help import-diff
   usage: rbd import-diff [--path <path>] [--pool <pool>] [--image <image>] 
-                         [--no-progress] 
+                         [--sparse-size <sparse-size>] [--no-progress] 
                          <path-name> <image-spec> 
   
   Import an incremental diff.
@@ -646,11 +655,12 @@
     --path arg           import file (or '-' for stdin)
     -p [ --pool ] arg    pool name
     --image arg          image name
+    --sparse-size arg    sparse size in B/K/M [default: 4K]
     --no-progress        disable progress output
   
   rbd help info
   usage: rbd info [--pool <pool>] [--image <image>] [--snap <snap>] 
-                  [--format <format>] [--pretty-format] 
+                  [--image-id <image-id>] [--format <format>] [--pretty-format] 
                   <image-or-snap-spec> 
   
   Show information about image size, striping, etc.
@@ -663,6 +673,7 @@
     -p [ --pool ] arg     pool name
     --image arg           image name
     --snap arg            snapshot name
+    --image-id arg        image id
     --format arg          output format [plain, json, or xml]
     --pretty-format       pretty formatting (json and xml)
   
@@ -863,7 +874,7 @@
   
   rbd help map
   usage: rbd map [--pool <pool>] [--image <image>] [--snap <snap>] 
-                 [--options <options>] [--read-only] 
+                 [--options <options>] [--read-only] [--exclusive] 
                  <image-or-snap-spec> 
   
   Map image to a block device using the kernel.
@@ -878,6 +889,7 @@
     --snap arg            snapshot name
     -o [ --options ] arg  map options
     --read-only           map read-only
+    --exclusive           disable automatic exclusive lock transitions
   
   rbd help merge-diff
   usage: rbd merge-diff [--path <path>] [--no-progress] 
@@ -1286,8 +1298,8 @@
     --limit arg          maximum allowed snapshot count
   
   rbd help snap list
-  usage: rbd snap list [--pool <pool>] [--image <image>] [--format <format>] 
-                       [--pretty-format] 
+  usage: rbd snap list [--pool <pool>] [--image <image>] [--image-id <image-id>] 
+                       [--format <format>] [--pretty-format] 
                        <image-spec> 
   
   Dump list of image snapshots.
@@ -1299,6 +1311,7 @@
   Optional arguments
     -p [ --pool ] arg    pool name
     --image arg          image name
+    --image-id arg       image id
     --format arg         output format [plain, json, or xml]
     --pretty-format      pretty formatting (json and xml)
   
@@ -1318,7 +1331,8 @@
     --snap arg           snapshot name
   
   rbd help snap purge
-  usage: rbd snap purge [--pool <pool>] [--image <image>] [--no-progress] 
+  usage: rbd snap purge [--pool <pool>] [--image <image>] 
+                        [--image-id <image-id>] [--no-progress] 
                         <image-spec> 
   
   Deletes all snapshots.
@@ -1330,11 +1344,12 @@
   Optional arguments
     -p [ --pool ] arg    pool name
     --image arg          image name
+    --image-id arg       image id
     --no-progress        disable progress output
   
   rbd help snap remove
   usage: rbd snap remove [--pool <pool>] [--image <image>] [--snap <snap>] 
-                         [--no-progress] [--force] 
+                         [--no-progress] [--image-id <image-id>] [--force] 
                          <snap-spec> 
   
   Deletes a snapshot.
@@ -1348,6 +1363,7 @@
     --image arg          image name
     --snap arg           snapshot name
     --no-progress        disable progress output
+    --image-id arg       image id
     --force              flatten children and unprotect snapshot if needed.
   
   rbd help snap rename
@@ -1391,6 +1407,7 @@
   
   rbd help snap unprotect
   usage: rbd snap unprotect [--pool <pool>] [--image <image>] [--snap <snap>] 
+                            [--image-id <image-id>] 
                             <snap-spec> 
   
   Allow a snapshot to be deleted.
@@ -1403,6 +1420,7 @@
     -p [ --pool ] arg    pool name
     --image arg          image name
     --snap arg           snapshot name
+    --image-id arg       image id
   
   rbd help status
   usage: rbd status [--pool <pool>] [--image <image>] [--format <format>] 
@@ -1420,6 +1438,71 @@
     --image arg          image name
     --format arg         output format [plain, json, or xml]
     --pretty-format      pretty formatting (json and xml)
+  
+  rbd help trash list
+  usage: rbd trash list [--pool <pool>] [--all] [--long] [--format <format>] 
+                        [--pretty-format] 
+                        <pool-name> 
+  
+  List trash images.
+  
+  Positional arguments
+    <pool-name>          pool name
+  
+  Optional arguments
+    -p [ --pool ] arg    pool name
+    -a [ --all ]         list images from all sources
+    -l [ --long ]        long listing format
+    --format arg         output format [plain, json, or xml]
+    --pretty-format      pretty formatting (json and xml)
+  
+  rbd help trash move
+  usage: rbd trash move [--pool <pool>] [--image <image>] [--delay <delay>] 
+                        <image-spec> 
+  
+  Moves an image to the trash.
+  
+  Positional arguments
+    <image-spec>         image specification
+                         (example: [<pool-name>/]<image-name>)
+  
+  Optional arguments
+    -p [ --pool ] arg    pool name
+    --image arg          image name
+    --delay arg          time delay in seconds until effectively remove the image
+  
+  rbd help trash remove
+  usage: rbd trash remove [--pool <pool>] [--image-id <image-id>] 
+                          [--no-progress] [--force] 
+                          <image-id> 
+  
+  Removes an image from trash.
+  
+  Positional arguments
+    <image-id>           image id
+                         (example: [<pool-name>/]<image-id>)
+  
+  Optional arguments
+    -p [ --pool ] arg    pool name
+    --image-id arg       image id
+    --no-progress        disable progress output
+    --force              force remove of non-expired delayed images
+  
+  rbd help trash restore
+  usage: rbd trash restore [--pool <pool>] [--image-id <image-id>] 
+                           [--image <image>] 
+                           <image-id> 
+  
+  Restores an image from trash.
+  
+  Positional arguments
+    <image-id>           image id
+                         (example: [<pool-name>/]<image-id>)
+  
+  Optional arguments
+    -p [ --pool ] arg    pool name
+    --image-id arg       image id
+    --image arg          image name
   
   rbd help unmap
   usage: rbd unmap [--pool <pool>] [--image <image>] [--snap <snap>] 

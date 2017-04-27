@@ -276,7 +276,9 @@ public:
   /**
    * Allows to extend fetch range of RGW object. Used by RGWGetObjFilter.
    */
-  virtual void fixup_range(off_t& bl_ofs, off_t& bl_end) {}
+  virtual int fixup_range(off_t& bl_ofs, off_t& bl_end) {
+    return 0;
+  }
 };
 
 class RGWAccessListFilter {
@@ -726,6 +728,11 @@ public:
     /* current ofs relative to start of rgw object */
     uint64_t get_ofs() const {
       return ofs;
+    }
+
+    /* stripe number */
+    int get_cur_stripe() const {
+      return cur_stripe;
     }
 
     /* current stripe size */
@@ -1584,6 +1591,15 @@ struct RGWPeriodConfig
 
   void dump(Formatter *f) const;
   void decode_json(JSONObj *obj);
+
+  // the period config must be stored in a local object outside of the period,
+  // so that it can be used in a default configuration where no realm/period
+  // exists
+  int read(RGWRados *store, const std::string& realm_id);
+  int write(RGWRados *store, const std::string& realm_id);
+
+  static std::string get_oid(const std::string& realm_id);
+  static rgw_pool get_pool(CephContext *cct);
 };
 WRITE_CLASS_ENCODER(RGWPeriodConfig)
 
@@ -1771,7 +1787,8 @@ class RGWPeriod
   const string get_period_oid_prefix();
 
   // gather the metadata sync status for each shard; only for use on master zone
-  int update_sync_status();
+  int update_sync_status(const RGWPeriod &current_period,
+                         std::ostream& error_stream, bool force_if_stale);
 
 public:
   RGWPeriod() : epoch(0), cct(NULL), store(NULL) {}
@@ -1788,6 +1805,7 @@ public:
   const string& get_master_zonegroup() const { return master_zonegroup; }
   const string& get_realm() const { return realm_id; }
   const RGWPeriodMap& get_map() const { return period_map; }
+  RGWPeriodConfig& get_config() { return period_config; }
   const RGWPeriodConfig& get_config() const { return period_config; }
   const std::vector<std::string>& get_sync_status() const { return sync_status; }
   rgw_pool get_pool(CephContext *cct);
@@ -1818,7 +1836,6 @@ public:
     realm_id = _realm_id;
   }
 
-  void update(const RGWZoneGroupMap& map);
   int reflect();
 
   int get_zonegroup(RGWZoneGroup& zonegroup,
@@ -1844,7 +1861,7 @@ public:
 
   // commit a staging period; only for use on master zone
   int commit(RGWRealm& realm, const RGWPeriod &current_period,
-             std::ostream& error_stream);
+             std::ostream& error_stream, bool force_if_stale = false);
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
@@ -2504,7 +2521,7 @@ public:
                  bool *is_truncated, RGWUsageIter& read_iter, map<rgw_user_bucket, rgw_usage_log_entry>& usage);
   int trim_usage(rgw_user& user, uint64_t start_epoch, uint64_t end_epoch);
 
-  int create_pool(rgw_pool& bucket);
+  int create_pool(const rgw_pool& pool);
 
   /**
    * create a bucket with name bucket and the given list of attrs
@@ -2533,6 +2550,7 @@ public:
                             obj_version *pep_objv,
                             ceph::real_time creation_time,
                             rgw_bucket *master_bucket,
+                            uint32_t *master_num_shards,
                             bool exclusive = true);
   int add_bucket_placement(const rgw_pool& new_pool);
   int remove_bucket_placement(const rgw_pool& new_pool);
@@ -3652,7 +3670,7 @@ public:
     return 0;
   }
 
-  int complete(size_t accounted_size, const string& etag,
+  int complete(size_t accounted_size, const string& etag, 
                ceph::real_time *mtime, ceph::real_time set_mtime,
                map<string, bufferlist>& attrs, ceph::real_time delete_at,
                const char *if_match = NULL, const char *if_nomatch = NULL);
@@ -3770,4 +3788,89 @@ public:
   }
 }; /* RGWPutObjProcessor_Atomic */
 
+#define MP_META_SUFFIX ".meta"
+
+class RGWMPObj {
+  string oid;
+  string prefix;
+  string meta;
+  string upload_id;
+public:
+  RGWMPObj() {}
+  RGWMPObj(const string& _oid, const string& _upload_id) {
+    init(_oid, _upload_id, _upload_id);
+  }
+  void init(const string& _oid, const string& _upload_id) {
+    init(_oid, _upload_id, _upload_id);
+  }
+  void init(const string& _oid, const string& _upload_id, const string& part_unique_str) {
+    if (_oid.empty()) {
+      clear();
+      return;
+    }
+    oid = _oid;
+    upload_id = _upload_id;
+    prefix = oid + ".";
+    meta = prefix + upload_id + MP_META_SUFFIX;
+    prefix.append(part_unique_str);
+  }
+  string& get_meta() { return meta; }
+  string get_part(int num) {
+    char buf[16];
+    snprintf(buf, 16, ".%d", num);
+    string s = prefix;
+    s.append(buf);
+    return s;
+  }
+  string get_part(string& part) {
+    string s = prefix;
+    s.append(".");
+    s.append(part);
+    return s;
+  }
+  string& get_upload_id() {
+    return upload_id;
+  }
+  string& get_key() {
+    return oid;
+  }
+  bool from_meta(string& meta) {
+    int end_pos = meta.rfind('.'); // search for ".meta"
+    if (end_pos < 0)
+      return false;
+    int mid_pos = meta.rfind('.', end_pos - 1); // <key>.<upload_id>
+    if (mid_pos < 0)
+      return false;
+    oid = meta.substr(0, mid_pos);
+    upload_id = meta.substr(mid_pos + 1, end_pos - mid_pos - 1);
+    init(oid, upload_id, upload_id);
+    return true;
+  }
+  void clear() {
+    oid = "";
+    prefix = "";
+    meta = "";
+    upload_id = "";
+  }
+};
+
+class RGWPutObjProcessor_Multipart : public RGWPutObjProcessor_Atomic
+{
+  string part_num;
+  RGWMPObj mp;
+  req_state *s;
+  string upload_id;
+
+protected:
+  int prepare(RGWRados *store, string *oid_rand);
+  int do_complete(size_t accounted_size, const string& etag,
+                  ceph::real_time *mtime, ceph::real_time set_mtime,
+                  map<string, bufferlist>& attrs, ceph::real_time delete_at,
+                  const char *if_match, const char *if_nomatch) override;
+public:
+  bool immutable_head() { return true; }
+  RGWPutObjProcessor_Multipart(RGWObjectCtx& obj_ctx, RGWBucketInfo& bucket_info, uint64_t _p, req_state *_s) :
+                   RGWPutObjProcessor_Atomic(obj_ctx, bucket_info, _s->bucket, _s->object.name, _p, _s->req_id, false), s(_s) {}
+  void get_mp(RGWMPObj** _mp);
+}; /* RGWPutObjProcessor_Multipart */
 #endif

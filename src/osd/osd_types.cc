@@ -789,6 +789,8 @@ std::string pg_state_string(int state)
     oss << "clean+";
   if (state & PG_STATE_RECOVERY_WAIT)
     oss << "recovery_wait+";
+  if (state & PG_STATE_RECOVERY_TOOFULL)
+    oss << "recovery_toofull+";
   if (state & PG_STATE_RECOVERING)
     oss << "recovering+";
   if (state & PG_STATE_DOWN)
@@ -869,6 +871,8 @@ int pg_string_state(const std::string& state)
     type = PG_STATE_BACKFILL_TOOFULL;
   else if (state == "recovery_wait")
     type = PG_STATE_RECOVERY_WAIT;
+  else if (state == "recovery_toofull")
+    type = PG_STATE_RECOVERY_TOOFULL;
   else if (state == "undersized")
     type = PG_STATE_UNDERSIZED;
   else if (state == "activating")
@@ -2873,7 +2877,16 @@ void pg_info_t::dump(Formatter *f) const
   f->dump_int("last_user_version", last_user_version);
   f->dump_stream("last_backfill") << last_backfill;
   f->dump_int("last_backfill_bitwise", (int)last_backfill_bitwise);
-  f->dump_stream("purged_snaps") << purged_snaps;
+  f->open_array_section("purged_snaps");
+  for (interval_set<snapid_t>::const_iterator i=purged_snaps.begin();
+       i != purged_snaps.end();
+       ++i) {
+    f->open_object_section("purged_snap_interval");
+    f->dump_stream("start") << i.get_start();
+    f->dump_stream("length") << i.get_len();
+    f->close_section();
+  }
+  f->close_section();
   f->open_object_section("history");
   history.dump(f);
   f->close_section();
@@ -3674,7 +3687,8 @@ void pg_log_entry_t::generate_test_instances(list<pg_log_entry_t*>& o)
 ostream& operator<<(ostream& out, const pg_log_entry_t& e)
 {
   out << e.version << " (" << e.prior_version << ") "
-      << e.get_op_name() << ' ' << e.soid << " by " << e.reqid << " " << e.mtime
+      << std::left << std::setw(8) << e.get_op_name() << ' '
+      << e.soid << " by " << e.reqid << " " << e.mtime
       << " " << e.return_code;
   if (e.snaps.length()) {
     vector<snapid_t> snaps;

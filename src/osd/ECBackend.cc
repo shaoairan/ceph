@@ -282,6 +282,11 @@ void ECBackend::handle_recovery_push(
   const PushOp &op,
   RecoveryMessages *m)
 {
+  ostringstream ss;
+  if (get_parent()->check_failsafe_full(ss)) {
+    dout(10) << __func__ << " Out of space (failsafe) processing push request: " << ss.str() << dendl;
+    ceph_abort();
+  }
 
   bool oneshot = op.before_progress.first && op.after_progress.data_complete;
   ghobject_t tobj;
@@ -289,8 +294,8 @@ void ECBackend::handle_recovery_push(
     tobj = ghobject_t(op.soid, ghobject_t::NO_GEN,
 		      get_parent()->whoami_shard().shard);
   } else {
-    tobj = ghobject_t(get_parent()->get_temp_recovery_object(op.version,
-							     op.soid.snap),
+    tobj = ghobject_t(get_parent()->get_temp_recovery_object(op.soid,
+							     op.version),
 		      ghobject_t::NO_GEN,
 		      get_parent()->whoami_shard().shard);
     if (op.before_progress.first) {
@@ -953,10 +958,12 @@ void ECBackend::handle_sub_read(
       ++i) {
     int r = 0;
     ECUtil::HashInfoRef hinfo;
+
     int subchunk_size = sinfo.get_chunk_size() / ec_impl->get_sub_chunk_count(); 
     dout(10) << __func__ << " subchunk_size:" << subchunk_size << dendl;
 
-    if (!get_parent()->get_pool().is_hacky_ecoverwrites()) {
+    if (!get_parent()->get_pool().allows_ecoverwrites()) {
+
       hinfo = get_hash_info(i->first);
       if (!hinfo) {
 	r = -EIO;
@@ -1012,7 +1019,7 @@ void ECBackend::handle_sub_read(
 	  );
       }
 
-      if (!get_parent()->get_pool().is_hacky_ecoverwrites()) {
+      if (!get_parent()->get_pool().allows_ecoverwrites()) {
 	// This shows that we still need deep scrub because large enough files
 	// are read in sections, so the digest check here won't be done here.
 	// Do NOT check osd_read_eio_on_bad_digest here.  We need to report
@@ -1767,7 +1774,7 @@ bool ECBackend::try_state_to_reads()
 
   Op *op = &(waiting_state.front());
   if (op->requires_rmw() && pipeline_state.cache_invalid()) {
-    assert(get_parent()->get_pool().is_hacky_ecoverwrites());
+    assert(get_parent()->get_pool().allows_ecoverwrites());
     dout(20) << __func__ << ": blocking " << *op
 	     << " because it requires an rmw and the cache is invalid "
 	     << pipeline_state
@@ -1821,7 +1828,7 @@ bool ECBackend::try_state_to_reads()
   dout(10) << __func__ << ": " << *op << dendl;
 
   if (!op->remote_read.empty()) {
-    assert(get_parent()->get_pool().is_hacky_ecoverwrites());
+    assert(get_parent()->get_pool().allows_ecoverwrites());
     objects_read_async_no_cache(
       op->remote_read,
       [this, op](map<hobject_t,pair<int, extent_map> > &&results) {
@@ -1894,7 +1901,7 @@ bool ECBackend::try_reads_to_commit()
   dout(20) << __func__ << ": written: " << written << dendl;
   dout(20) << __func__ << ": op: " << *op << dendl;
 
-  if (!get_parent()->get_pool().is_hacky_ecoverwrites()) {
+  if (!get_parent()->get_pool().allows_ecoverwrites()) {
     for (auto &&i: op->log_entries) {
       if (i.requires_kraken()) {
 	derr << __func__ << ": log entry " << i << " requires kraken"
@@ -2365,6 +2372,7 @@ void ECBackend::be_deep_scrub(
   uint32_t fadvise_flags = CEPH_OSD_OP_FLAG_FADVISE_SEQUENTIAL | CEPH_OSD_OP_FLAG_FADVISE_DONTNEED;
 
   while (true) {
+    
     bufferlist bl;
     handle.reset_tp_timeout();
     r = store->read(
@@ -2400,7 +2408,7 @@ void ECBackend::be_deep_scrub(
     o.digest_present = false;
     return;
   } else {
-    if (!get_parent()->get_pool().is_hacky_ecoverwrites()) {
+    if (!get_parent()->get_pool().allows_ecoverwrites()) {
       assert(hinfo->has_chunk_hash());
       if (hinfo->get_total_chunk_size() != pos) {
 	dout(0) << "_scan_list  " << poid << " got incorrect size on read" << dendl;

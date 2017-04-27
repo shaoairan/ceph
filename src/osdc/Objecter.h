@@ -282,7 +282,37 @@ struct ObjectOperation {
     out_handler[p] = h;
     out_rval[p] = prval;
   }
-  // object data
+  // object cmpext
+  struct C_ObjectOperation_cmpext : public Context {
+    int *prval;
+    C_ObjectOperation_cmpext(int *prval)
+      : prval(prval) {}
+
+    void finish(int r) {
+      if (prval)
+        *prval = r;
+    }
+  };
+
+  void cmpext(uint64_t off, bufferlist& cmp_bl, int *prval) {
+    add_data(CEPH_OSD_OP_CMPEXT, off, cmp_bl.length(), cmp_bl);
+    unsigned p = ops.size() - 1;
+    C_ObjectOperation_cmpext *h = new C_ObjectOperation_cmpext(prval);
+    out_handler[p] = h;
+    out_rval[p] = prval;
+  }
+
+  // Used by C API
+  void cmpext(uint64_t off, uint64_t cmp_len, const char *cmp_buf, int *prval) {
+    bufferlist cmp_bl;
+    cmp_bl.append(cmp_buf, cmp_len);
+    add_data(CEPH_OSD_OP_CMPEXT, off, cmp_len, cmp_bl);
+    unsigned p = ops.size() - 1;
+    C_ObjectOperation_cmpext *h = new C_ObjectOperation_cmpext(prval);
+    out_handler[p] = h;
+    out_rval[p] = prval;
+  }
+
   void read(uint64_t off, uint64_t len, bufferlist *pbl, int *prval,
 	    Context* ctx) {
     bufferlist bl;
@@ -365,6 +395,22 @@ struct ObjectOperation {
   void sparse_read(uint64_t off, uint64_t len) {
     bufferlist bl;
     add_data(CEPH_OSD_OP_SPARSE_READ, off, len, bl);
+  }
+
+  void checksum(uint8_t type, const bufferlist &init_value_bl,
+		uint64_t off, uint64_t len, size_t chunk_size,
+		bufferlist *pbl, int *prval, Context *ctx) {
+    OSDOp& osd_op = add_op(CEPH_OSD_OP_CHECKSUM);
+    osd_op.op.checksum.offset = off;
+    osd_op.op.checksum.length = len;
+    osd_op.op.checksum.type = type;
+    osd_op.op.checksum.chunk_size = chunk_size;
+    osd_op.indata.append(init_value_bl);
+
+    unsigned p = ops.size() - 1;
+    out_bl[p] = pbl;
+    out_rval[p] = prval;
+    out_handler[p] = ctx;
   }
 
   // object attrs
@@ -1952,28 +1998,10 @@ private:
   // here or you will have great woe and misery.
 
   template<typename Callback, typename...Args>
-  auto with_osdmap(Callback&& cb, Args&&...args) ->
-    typename std::enable_if<
-      std::is_void<
-    decltype(cb(const_cast<const OSDMap&>(*osdmap),
-		std::forward<Args>(args)...))>::value,
-      void>::type {
+  auto with_osdmap(Callback&& cb, Args&&... args) const ->
+    decltype(cb(*osdmap, std::forward<Args>(args)...)) {
     shared_lock l(rwlock);
-    std::forward<Callback>(cb)(const_cast<const OSDMap&>(*osdmap),
-			       std::forward<Args>(args)...);
-  }
-
-  template<typename Callback, typename...Args>
-  auto with_osdmap(Callback&& cb, Args&&... args) ->
-    typename std::enable_if<
-      !std::is_void<
-	decltype(cb(const_cast<const OSDMap&>(*osdmap),
-		    std::forward<Args>(args)...))>::value,
-      decltype(cb(const_cast<const OSDMap&>(*osdmap),
-		  std::forward<Args>(args)...))>::type {
-    shared_lock l(rwlock);
-    return std::forward<Callback>(cb)(const_cast<const OSDMap&>(*osdmap),
-				      std::forward<Args>(args)...);
+    return std::forward<Callback>(cb)(*osdmap, std::forward<Args>(args)...);
   }
 
 
@@ -2339,6 +2367,38 @@ public:
     ObjectOperation *extra_ops = NULL, int op_flags = 0) {
     Op *o = prepare_read_op(oid, oloc, off, len, snap, pbl, flags,
 			    onfinish, objver, extra_ops, op_flags);
+    ceph_tid_t tid;
+    op_submit(o, &tid);
+    return tid;
+  }
+
+  Op *prepare_cmpext_op(
+    const object_t& oid, const object_locator_t& oloc,
+    uint64_t off, bufferlist &cmp_bl,
+    snapid_t snap, int flags, Context *onfinish, version_t *objver = NULL,
+    ObjectOperation *extra_ops = NULL, int op_flags = 0) {
+    vector<OSDOp> ops;
+    int i = init_ops(ops, 1, extra_ops);
+    ops[i].op.op = CEPH_OSD_OP_CMPEXT;
+    ops[i].op.extent.offset = off;
+    ops[i].op.extent.length = cmp_bl.length();
+    ops[i].op.extent.truncate_size = 0;
+    ops[i].op.extent.truncate_seq = 0;
+    ops[i].indata = cmp_bl;
+    ops[i].op.flags = op_flags;
+    Op *o = new Op(oid, oloc, ops, flags | global_op_flags.read() |
+		   CEPH_OSD_FLAG_READ, onfinish, objver);
+    o->snapid = snap;
+    return o;
+  }
+
+  ceph_tid_t cmpext(
+    const object_t& oid, const object_locator_t& oloc,
+    uint64_t off, bufferlist &cmp_bl,
+    snapid_t snap, int flags, Context *onfinish, version_t *objver = NULL,
+    ObjectOperation *extra_ops = NULL, int op_flags = 0) {
+    Op *o = prepare_cmpext_op(oid, oloc, off, cmp_bl, snap,
+			      flags, onfinish, objver, extra_ops, op_flags);
     ceph_tid_t tid;
     op_submit(o, &tid);
     return tid;

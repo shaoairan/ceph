@@ -75,7 +75,8 @@ public:
     PoolWatcherListener(TestPoolWatcher *test) : test(test) {
     }
 
-    void handle_update(const ImageIds &added_image_ids,
+    void handle_update(const std::string &mirror_uuid,
+                       const ImageIds &added_image_ids,
                        const ImageIds &removed_image_ids) override {
       Mutex::Locker locker(test->m_lock);
       for (auto &image_id : removed_image_ids) {
@@ -147,7 +148,7 @@ public:
       image.close();
 
       m_mirrored_images.insert(ImageId(
-        mirror_image_info.global_id, get_image_id(&ioctx, name), name));
+        mirror_image_info.global_id, get_image_id(&ioctx, name)));
     }
     if (image_name != nullptr)
       *image_name = name;
@@ -194,7 +195,7 @@ public:
       image.close();
 
       m_mirrored_images.insert(ImageId(
-        mirror_image_info.global_id, get_image_id(&cioctx, name), name));
+        mirror_image_info.global_id, get_image_id(&cioctx, name)));
     }
     if (image_name != nullptr)
       *image_name = name;

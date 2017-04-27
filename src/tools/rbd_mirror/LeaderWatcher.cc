@@ -6,6 +6,7 @@
 #include "common/debug.h"
 #include "common/errno.h"
 #include "cls/rbd/cls_rbd_client.h"
+#include "include/stringify.h"
 #include "librbd/Utils.h"
 #include "librbd/watcher/Types.h"
 #include "Threads.h"
@@ -240,19 +241,54 @@ void LeaderWatcher<I>::handle_wait_for_tasks() {
 }
 
 template <typename I>
-bool LeaderWatcher<I>::is_leader() {
+bool LeaderWatcher<I>::is_leader() const {
   Mutex::Locker locker(m_lock);
 
   return is_leader(m_lock);
 }
 
 template <typename I>
-bool LeaderWatcher<I>::is_leader(Mutex &lock) {
+bool LeaderWatcher<I>::is_leader(Mutex &lock) const {
   assert(m_lock.is_locked());
 
   bool leader = m_leader_lock->is_leader();
   dout(20) << leader << dendl;
   return leader;
+}
+
+template <typename I>
+bool LeaderWatcher<I>::is_releasing_leader() const {
+  Mutex::Locker locker(m_lock);
+
+  return is_releasing_leader(m_lock);
+}
+
+template <typename I>
+bool LeaderWatcher<I>::is_releasing_leader(Mutex &lock) const {
+  assert(m_lock.is_locked());
+
+  bool releasing = m_leader_lock->is_releasing_leader();
+  dout(20) << releasing << dendl;
+  return releasing;
+}
+
+template <typename I>
+bool LeaderWatcher<I>::get_leader_instance_id(std::string *instance_id) const {
+  dout(20) << dendl;
+
+  Mutex::Locker locker(m_lock);
+
+  if (is_leader(m_lock) || is_releasing_leader(m_lock)) {
+    *instance_id = stringify(m_notifier_id);
+    return true;
+  }
+
+  if (!m_locker.cookie.empty()) {
+    *instance_id = stringify(m_locker.entity.num());
+    return true;
+  }
+
+  return false;
 }
 
 template <typename I>
@@ -278,7 +314,6 @@ void LeaderWatcher<I>::list_instances(std::vector<std::string> *instance_ids) {
     m_instances->list(instance_ids);
   }
 }
-
 
 template <typename I>
 void LeaderWatcher<I>::cancel_timer_task() {
@@ -903,8 +938,8 @@ void LeaderWatcher<I>::notify_heartbeat() {
   bufferlist bl;
   ::encode(NotifyMessage{HeartbeatPayload{}}, bl);
 
-  m_heartbeat_ack_bl.clear();
-  send_notify(bl, &m_heartbeat_ack_bl, ctx);
+  m_heartbeat_response.acks.clear();
+  send_notify(bl, &m_heartbeat_response, ctx);
 }
 
 template <typename I>
@@ -930,31 +965,17 @@ void LeaderWatcher<I>::handle_notify_heartbeat(int r) {
     return;
   }
 
-  try {
-    bufferlist::iterator iter = m_heartbeat_ack_bl.begin();
-    uint32_t num_acks;
-    ::decode(num_acks, iter);
+  dout(20) << m_heartbeat_response.acks.size() << " acks received, "
+           << m_heartbeat_response.timeouts.size() << " timed out" << dendl;
 
-    dout(20) << num_acks << " acks received" << dendl;
-
-    for (uint32_t i = 0; i < num_acks; i++) {
-      uint64_t notifier_id;
-      uint64_t cookie;
-      bufferlist reply_bl;
-
-      ::decode(notifier_id, iter);
-      ::decode(cookie, iter);
-      ::decode(reply_bl, iter);
-
-      if (notifier_id == m_notifier_id) {
-	continue;
-      }
-
-      std::string instance_id = stringify(notifier_id);
-      m_instances->notify(instance_id);
+  for (auto &it: m_heartbeat_response.acks) {
+    uint64_t notifier_id = it.first.gid;
+    if (notifier_id == m_notifier_id) {
+      continue;
     }
-  } catch (const buffer::error &err) {
-    derr << ": error decoding heartbeat acks: " << err.what() << dendl;
+
+    std::string instance_id = stringify(notifier_id);
+    m_instances->notify(instance_id);
   }
 
   schedule_timer_task("heartbeat", 1, true,
@@ -1022,7 +1043,7 @@ void LeaderWatcher<I>::handle_notify(uint64_t notify_id, uint64_t handle,
   dout(20) << "notify_id=" << notify_id << ", handle=" << handle << ", "
            << "notifier_id=" << notifier_id << dendl;
 
-  Context *ctx = new librbd::watcher::C_NotifyAck(this, notify_id, handle);
+  Context *ctx = new C_NotifyAck(this, notify_id, handle);
 
   if (notifier_id == m_notifier_id) {
     dout(20) << "our own notification, ignoring" << dendl;

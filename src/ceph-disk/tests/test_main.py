@@ -38,6 +38,9 @@ class TestCephDisk(object):
         main.setup_logging(verbose=True, log_stdout=False)
 
     def test_main_list_json(self, capsys):
+        if platform.system() == "FreeBSD":
+            return
+
         data = tempfile.mkdtemp()
         main.setup_statedir(data)
         args = main.parse_args(['list', '--format', 'json'])
@@ -50,6 +53,9 @@ class TestCephDisk(object):
         shutil.rmtree(data)
 
     def test_main_list_plain(self, capsys):
+        if platform.system() == "FreeBSD":
+            return
+
         data = tempfile.mkdtemp()
         main.setup_statedir(data)
         args = main.parse_args(['list'])
@@ -267,6 +273,9 @@ class TestCephDisk(object):
                     'state': 'prepared'} == desc
 
     def test_list_all_partitions(self):
+        if platform.system() == "FreeBSD":
+            return
+
         disk = "Xda"
         partition = "Xda1"
 
@@ -1304,6 +1313,30 @@ class TestCephDiskDeactivateAndDestroy(unittest.TestCase):
         ):
             self.assertRaises(Exception, main._deallocate_osd_id,
                               cluster, osd_id)
+
+    def test_main_fix(self):
+        if platform.system() == "FreeBSD":
+            return
+
+        args = main.parse_args(['fix', '--all', '--selinux', '--permissions'])
+        commands = []
+
+        def _command(x):
+            commands.append(" ".join(x))
+            return ("", "", None)
+
+        with patch.multiple(
+            main,
+            command=_command,
+            command_init=lambda x: commands.append(x),
+            command_wait=lambda x: None,
+        ):
+            main.main_fix(args)
+            commands = " ".join(commands)
+            assert '/var/lib/ceph' in commands
+            assert 'restorecon' in commands
+            assert 'chown' in commands
+            assert 'find' in commands
 
 
 def raise_command_error(*args):

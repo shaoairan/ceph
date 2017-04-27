@@ -502,6 +502,7 @@ static int get_swift_container_settings(req_state * const s,
                                         RGWRados * const store,
                                         RGWAccessControlPolicy * const policy,
                                         bool * const has_policy,
+                                        uint32_t * rw_mask,
                                         RGWCORSConfiguration * const cors_config,
                                         bool * const has_cors)
 {
@@ -524,7 +525,8 @@ static int get_swift_container_settings(req_state * const s,
                                        s->user->user_id,
                                        s->user->display_name,
                                        read_list,
-                                       write_list);
+                                       write_list,
+                                       *rw_mask);
     if (r < 0) {
       return r;
     }
@@ -622,8 +624,10 @@ static int get_swift_versioning_settings(
 int RGWCreateBucket_ObjStore_SWIFT::get_params()
 {
   bool has_policy;
+  uint32_t policy_rw_mask = 0;
 
-  int r = get_swift_container_settings(s, store, &policy, &has_policy, &cors_config, &has_cors);
+  int r = get_swift_container_settings(s, store, &policy, &has_policy,
+				       &policy_rw_mask, &cors_config, &has_cors);
   if (r < 0) {
     return r;
   }
@@ -665,7 +669,7 @@ void RGWDeleteBucket_ObjStore_SWIFT::send_response()
   rgw_flush_formatter_and_reset(s, s->formatter);
 }
 
-static int get_delete_at_param(req_state *s, real_time *delete_at)
+static int get_delete_at_param(req_state *s, boost::optional<real_time> &delete_at)
 {
   /* Handle Swift object expiration. */
   real_time delat_proposal;
@@ -680,6 +684,10 @@ static int get_delete_at_param(req_state *s, real_time *delete_at)
   }
 
   if (x_delete.empty()) {
+    delete_at = boost::none;
+    if (s->info.env->exists("HTTP_X_REMOVE_DELETE_AT")) {
+      delete_at = boost::in_place(real_time());
+    }
     return 0;
   }
   string err;
@@ -694,7 +702,7 @@ static int get_delete_at_param(req_state *s, real_time *delete_at)
     return -EINVAL;
   }
 
-  *delete_at = delat_proposal;
+  delete_at = delat_proposal;
 
   return 0;
 }
@@ -748,7 +756,7 @@ int RGWPutObj_ObjStore_SWIFT::get_params()
 
   policy.create_default(s->user->user_id, s->user->display_name);
 
-  int r = get_delete_at_param(s, &delete_at);
+  int r = get_delete_at_param(s, delete_at);
   if (r < 0) {
     ldout(s->cct, 5) << "ERROR: failed to get Delete-At param" << dendl;
     return r;
@@ -891,7 +899,7 @@ int RGWPutMetadataBucket_ObjStore_SWIFT::get_params()
   }
 
   int r = get_swift_container_settings(s, store, &policy, &has_policy,
-				       &cors_config, &has_cors);
+				       &policy_rw_mask, &cors_config, &has_cors);
   if (r < 0) {
     return r;
   }
@@ -921,7 +929,7 @@ int RGWPutMetadataObject_ObjStore_SWIFT::get_params()
   }
 
   /* Handle Swift object expiration. */
-  int r = get_delete_at_param(s, &delete_at);
+  int r = get_delete_at_param(s, delete_at);
   if (r < 0) {
     ldout(s->cct, 5) << "ERROR: failed to get Delete-At param" << dendl;
     return r;
@@ -1120,7 +1128,9 @@ static void dump_object_metadata(struct req_state * const s,
     utime_t delete_at;
     try {
       ::decode(delete_at, iter->second);
-      dump_header(s, "X-Delete-At", delete_at.sec());
+      if (!delete_at.is_zero()) {
+        dump_header(s, "X-Delete-At", delete_at.sec());
+      }
     } catch (buffer::error& err) {
       ldout(s->cct, 0) << "ERROR: cannot decode object's " RGW_ATTR_DELETE_AT
                           " attr, ignoring"
@@ -1157,7 +1167,7 @@ int RGWCopyObj_ObjStore_SWIFT::get_params()
     attrs_mod = RGWRados::ATTRSMOD_MERGE;
   }
 
-  int r = get_delete_at_param(s, &delete_at);
+  int r = get_delete_at_param(s, delete_at);
   if (r < 0) {
     ldout(s->cct, 5) << "ERROR: failed to get Delete-At param" << dendl;
     return r;
@@ -1420,6 +1430,136 @@ void RGWBulkDelete_ObjStore_SWIFT::send_response()
   rgw_flush_formatter_and_reset(s, s->formatter);
 }
 
+
+std::unique_ptr<RGWBulkUploadOp::StreamGetter>
+RGWBulkUploadOp_ObjStore_SWIFT::create_stream()
+{
+  class SwiftStreamGetter : public StreamGetter {
+    const size_t conlen;
+    size_t curpos;
+    req_state* const s;
+
+  public:
+    SwiftStreamGetter(req_state* const s, const size_t conlen)
+      : conlen(conlen),
+        curpos(0),
+        s(s) {
+    }
+
+    ssize_t get_at_most(size_t want, ceph::bufferlist& dst) override {
+      /* maximum requested by a caller */
+      /* data provided by client */
+      /* RadosGW's limit. */
+      const size_t max_chunk_size = \
+        static_cast<size_t>(s->cct->_conf->rgw_max_chunk_size);
+      const size_t max_to_read = std::min({ want, conlen - curpos, max_chunk_size });
+
+      ldout(s->cct, 20) << "bulk_upload: get_at_most max_to_read="
+                        << max_to_read
+                        << ", dst.c_str()=" << reinterpret_cast<intptr_t>(dst.c_str()) << dendl;
+
+      bufferptr bp(max_to_read);
+      const auto read_len = recv_body(s, bp.c_str(), max_to_read);
+      dst.append(bp, 0, read_len);
+      //const auto read_len = recv_body(s, dst.c_str(), max_to_read);
+      if (read_len < 0) {
+        return read_len;
+      }
+
+      curpos += read_len;
+      return curpos > s->cct->_conf->rgw_max_put_size ? -ERR_TOO_LARGE
+                                                      : read_len;
+    }
+
+    ssize_t get_exactly(size_t want, ceph::bufferlist& dst) override {
+      ldout(s->cct, 20) << "bulk_upload: get_exactly want=" << want << dendl;
+
+      /* FIXME: do this in a loop. */
+      const auto ret = get_at_most(want, dst);
+      ldout(s->cct, 20) << "bulk_upload: get_exactly ret=" << ret << dendl;
+      if (ret < 0) {
+        return ret;
+      } else if (static_cast<size_t>(ret) != want) {
+        return -EINVAL;
+      } else {
+        return want;
+      }
+    }
+  };
+
+  if (! s->length) {
+    op_ret = -EINVAL;
+    return nullptr;
+  } else {
+    ldout(s->cct, 20) << "bulk upload: create_stream for length="
+                      << s->length << dendl;
+
+    const size_t conlen = atoll(s->length);
+    return std::unique_ptr<SwiftStreamGetter>(new SwiftStreamGetter(s, conlen));
+  }
+}
+
+void RGWBulkUploadOp_ObjStore_SWIFT::send_response()
+{
+  set_req_state_err(s, op_ret);
+  dump_errno(s);
+  end_header(s, this /* RGWOp */, nullptr /* contype */,
+             CHUNKED_TRANSFER_ENCODING);
+  rgw_flush_formatter_and_reset(s, s->formatter);
+
+  s->formatter->open_object_section("delete");
+
+  std::string resp_status;
+  std::string resp_body;
+
+  if (! failures.empty()) {
+    rgw_err err;
+
+    const auto last_err = { failures.back().err };
+    if (boost::algorithm::contains(last_err, terminal_errors)) {
+      /* The terminal errors are affecting the status of the whole upload. */
+      set_req_state_err(err, failures.back().err, s->prot_flags);
+    } else {
+      set_req_state_err(err, ERR_INVALID_REQUEST, s->prot_flags);
+    }
+
+    dump_errno(err, resp_status);
+  } else if (0 == num_created && failures.empty()) {
+    /* Nothing created, nothing failed. This means the archive contained no
+     * entity we could understand (regular file or directory). We need to
+     * send 400 Bad Request to an HTTP client in the internal status field. */
+    dump_errno(400, resp_status);
+    resp_body = "Invalid Tar File: No Valid Files";
+  } else {
+    /* 200 OK */
+    dump_errno(201, resp_status);
+  }
+
+  encode_json("Number Files Created", num_created, s->formatter);
+  encode_json("Response Body", resp_body, s->formatter);
+  encode_json("Response Status", resp_status, s->formatter);
+
+  s->formatter->open_array_section("Errors");
+  for (const auto& fail_desc : failures) {
+    s->formatter->open_array_section("object");
+
+    encode_json("Name", fail_desc.path, s->formatter);
+
+    rgw_err err;
+    set_req_state_err(err, fail_desc.err, s->prot_flags);
+    std::string status;
+    dump_errno(err, status);
+    encode_json("Status", status, s->formatter);
+
+    s->formatter->close_section();
+  }
+  s->formatter->close_section();
+
+  s->formatter->close_section();
+  rgw_flush_formatter_and_reset(s, s->formatter);
+}
+
+
 void RGWGetCrossDomainPolicy_ObjStore_SWIFT::send_response()
 {
   set_req_state_err(s, op_ret);
@@ -1585,6 +1725,14 @@ RGWOp *RGWHandler_REST_Service_SWIFT::op_get()
 RGWOp *RGWHandler_REST_Service_SWIFT::op_head()
 {
   return new RGWStatAccount_ObjStore_SWIFT;
+}
+
+RGWOp *RGWHandler_REST_Service_SWIFT::op_put()
+{
+  if (s->info.args.exists("extract-archive")) {
+    return new RGWBulkUploadOp_ObjStore_SWIFT;
+  }
+  return nullptr;
 }
 
 RGWOp *RGWHandler_REST_Service_SWIFT::op_post()

@@ -22,7 +22,7 @@ function run() {
     local dir=$1
     shift
 
-    export CEPH_MON="127.0.0.1:7127" # git grep '\<7127\>' : there must be only one
+    export CEPH_MON="127.0.0.1:7130" # git grep '\<7130\>' : there must be only one
     export CEPH_ARGS
     CEPH_ARGS+="--fsid=$(uuidgen) --auth-supported=none "
     CEPH_ARGS+="--mon-host=$CEPH_MON "
@@ -104,6 +104,39 @@ function TEST_classes() {
     # generated bucket with a name including ~ssd.
     #
     ceph osd crush dump | grep -q '~ssd' || return 1
+}
+
+function TEST_set_device_class() {
+    local dir=$1
+
+    TEST_classes $dir || return 1
+
+    ceph osd crush set-device-class osd.0 ssd || return 1
+    ceph osd crush set-device-class osd.1 ssd || return 1
+
+    ok=false
+    for delay in 2 4 8 16 32 64 128 256 ; do
+        if test "$(get_osds_up rbd SOMETHING_ELSE)" == "0 1" ; then
+            ok=true
+            break
+        fi
+        sleep $delay
+        ceph osd crush dump
+        ceph osd dump # for debugging purposes
+        ceph pg dump # for debugging purposes
+    done
+    $ok || return 1
+}
+
+function TEST_mon_classes() {
+    local dir=$1
+
+    run_mon $dir a || return 1
+    ceph osd crush class create CLASS || return 1
+    ceph osd crush class create CLASS || return 1 # idempotent
+    ceph osd crush class ls | grep CLASS  || return 1
+    ceph osd crush class rm CLASS || return 1
+    expect_failure $dir ENOENT ceph osd crush class rm CLASS || return 1
 }
 
 main crush-classes "$@"

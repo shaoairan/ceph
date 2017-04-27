@@ -170,7 +170,7 @@ extern "C" int rados_conf_read_file(rados_t cluster, const char *path) {
     conf->parse_env();
     conf->apply_changes(NULL);
     conf->complain_about_parse_errors(client->cct());
-  } else if (ret == -EINVAL) {
+  } else if (ret == -ENOENT) {
     // ignore missing client config
     return 0;
   }
@@ -1130,7 +1130,7 @@ int cls_cxx_map_get_keys(cls_method_context_t hctx, const string &start_obj,
       keys->insert(last_key);
     }
   } while (!vals.empty());
-  return 0;
+  return keys->size();
 }
 
 int cls_cxx_map_get_val(cls_method_context_t hctx, const string &key,
@@ -1158,8 +1158,12 @@ int cls_cxx_map_get_vals(cls_method_context_t hctx, const string &start_obj,
                          std::map<string, bufferlist> *vals) {
   librados::TestClassHandler::MethodContext *ctx =
     reinterpret_cast<librados::TestClassHandler::MethodContext*>(hctx);
-  return ctx->io_ctx_impl->omap_get_vals(ctx->oid, start_obj, filter_prefix,
-      max_to_get, vals);
+  int r = ctx->io_ctx_impl->omap_get_vals(ctx->oid, start_obj, filter_prefix,
+					  max_to_get, vals);
+  if (r < 0) {
+    return r;
+  }
+  return vals->size();
 }
 
 int cls_cxx_map_remove_key(cls_method_context_t hctx, const string &key) {

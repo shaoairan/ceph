@@ -23,11 +23,10 @@
 #include "Watch.h"
 #include "TierAgentState.h"
 #include "messages/MOSDOpReply.h"
+#include "common/Checksummer.h"
 #include "common/sharedptr_registry.hpp"
 #include "ReplicatedBackend.h"
 #include "PGTransaction.h"
-
-class MOSDSubOpReply;
 
 class CopyFromCallback;
 class PromoteCallback;
@@ -38,7 +37,6 @@ class HitSet;
 struct TierAgentState;
 class MOSDOp;
 class MOSDOpReply;
-class MOSDSubOp;
 class OSDService;
 
 void intrusive_ptr_add_ref(PrimaryLogPG *pg);
@@ -1304,6 +1302,16 @@ protected:
   int do_xattr_cmp_u64(int op, __u64 v1, bufferlist& xattr);
   int do_xattr_cmp_str(int op, string& v1s, bufferlist& xattr);
 
+  // -- checksum --
+  int do_checksum(OpContext *ctx, OSDOp& osd_op, bufferlist::iterator *bl_it,
+		  bool *async_read);
+  int finish_checksum(OSDOp& osd_op, Checksummer::CSumType csum_type,
+                      bufferlist::iterator *init_value_bl_it,
+                      const bufferlist &read_bl);
+
+  friend class C_ChecksumRead;
+
+  int do_extent_cmp(OpContext *ctx, OSDOp& osd_op);
   int do_writesame(OpContext *ctx, OSDOp& osd_op);
 
   bool pgls_filter(PGLSFilter *filter, hobject_t& sobj, bufferlist& outdata);
@@ -1357,6 +1365,7 @@ public:
     OpRequestRef op,
     ThreadPool::TPHandle &handle) override;
   void do_backfill(OpRequestRef op) override;
+  void do_backfill_remove(OpRequestRef op);
 
   void handle_backoff(OpRequestRef& op);
 
@@ -1378,10 +1387,11 @@ private:
   bool check_src_targ(const hobject_t& soid, const hobject_t& toid) const;
 
   uint64_t temp_seq; ///< last id for naming temp objects
-  hobject_t generate_temp_object();  ///< generate a new temp object name
+  /// generate a new temp object name
+  hobject_t generate_temp_object(const hobject_t& target);
   /// generate a new temp object name (for recovery)
-  hobject_t get_temp_recovery_object(eversion_t version,
-				     snapid_t snap) override;
+  hobject_t get_temp_recovery_object(const hobject_t& target,
+				     eversion_t version) override;
   int get_recovery_op_priority() const {
       int pri = 0;
       pool.info.opts.get(pool_opts_t::RECOVERY_OP_PRIORITY, &pri);
@@ -1732,6 +1742,8 @@ public:
   void on_flushed() override;
   void on_removal(ObjectStore::Transaction *t) override;
   void on_shutdown() override;
+  bool check_failsafe_full(ostream &ss) override;
+  bool check_osdmap_full(const set<pg_shard_t> &missing_on) override;
 
   // attr cache handling
   void setattr_maybe_cache(

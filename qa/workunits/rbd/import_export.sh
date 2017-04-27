@@ -154,6 +154,7 @@ dd if=/dev/urandom bs=1M count=1 of=${TMPDIR}/sparse2; truncate ${TMPDIR}/sparse
 # 1M-block images; validate resulting blocks
 
 # 1M sparse, 1M data
+rbd rm sparse1 || true
 rbd import $RBD_CREATE_ARGS --order 20 ${TMPDIR}/sparse1
 rbd ls -l | grep sparse1 | grep -i '2048k'
 [ $tiered -eq 1 -o "$(objects sparse1)" = '1' ]
@@ -165,6 +166,7 @@ rm ${TMPDIR}/sparse1.out
 rbd rm sparse1
 
 # 1M data, 1M sparse
+rbd rm sparse2 || true
 rbd import $RBD_CREATE_ARGS --order 20 ${TMPDIR}/sparse2
 rbd ls -l | grep sparse2 | grep -i '2048k'
 [ $tiered -eq 1 -o "$(objects sparse2)" = '0' ]
@@ -221,7 +223,7 @@ dd if=/dev/zero bs=4M count=1 | rados -p $(get_image_data_pool sparse) \
 # 1 object full of zeros; export should still create 0-disk-usage file
 rm ${TMPDIR}/sparse || true
 rbd export sparse ${TMPDIR}/sparse
-[ $(stat ${TMPDIR}/sparse --format=%b) = '0' ] 
+[ $(stat ${TMPDIR}/sparse --format=%b) = '0' ]
 rbd rm sparse
 
 rm ${TMPDIR}/sparse ${TMPDIR}/sparse1 ${TMPDIR}/sparse2 ${TMPDIR}/sparse3 || true

@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <string>
 
+#include "include/err.h"
 #include "include/rados/librados.h"
 #include "test/librados/test.h"
 #include "test/librados/TestCase.h"
@@ -104,8 +105,9 @@ protected:
       if (key == NULL)
 	break;
       EXPECT_EQ(std::string(keys[i]), std::string(key));
-      if (val != NULL)
+      if (val != NULL) {
         EXPECT_EQ(0, memcmp(vals[i], val, val_len));
+      }
       EXPECT_EQ(lens[i], val_len);
       ++i;
     }
@@ -314,6 +316,72 @@ TEST_F(CReadOpsTest, Read) {
   remove_object();
 }
 
+TEST_F(CReadOpsTest, Checksum) {
+  write_object();
+
+  {
+    rados_read_op_t op = rados_create_read_op();
+    uint64_t init_value = -1;
+    rados_read_op_checksum(op, LIBRADOS_CHECKSUM_TYPE_XXHASH64,
+			   reinterpret_cast<char *>(&init_value),
+			   sizeof(init_value), 0, len, 0, NULL, 0, NULL);
+    ASSERT_EQ(0, rados_read_op_operate(op, ioctx, obj, 0));
+    rados_release_read_op(op);
+  }
+
+  {
+    uint32_t init_value = -1;
+    uint32_t crc[2];
+    rados_read_op_t op = rados_create_read_op();
+    rados_read_op_checksum(op, LIBRADOS_CHECKSUM_TYPE_CRC32C,
+			   reinterpret_cast<char *>(&init_value),
+			   sizeof(init_value), 0, len, 0,
+			   reinterpret_cast<char *>(&crc), sizeof(crc),
+			   nullptr);
+    ASSERT_EQ(0, rados_read_op_operate(op, ioctx, obj, 0));
+    ASSERT_EQ(1U, crc[0]);
+    uint32_t expected_crc = ceph_crc32c(
+      -1, reinterpret_cast<const uint8_t*>(data), static_cast<uint32_t>(len));
+    ASSERT_EQ(expected_crc, crc[1]);
+    rados_release_read_op(op);
+  }
+
+  {
+    uint32_t init_value = -1;
+    int rval;
+    rados_read_op_t op = rados_create_read_op();
+    rados_read_op_checksum(op, LIBRADOS_CHECKSUM_TYPE_XXHASH32,
+                           reinterpret_cast<char *>(&init_value),
+			   sizeof(init_value), 0, len, 0, nullptr, 0, &rval);
+    ASSERT_EQ(0, rados_read_op_operate(op, ioctx, obj, 0));
+    ASSERT_EQ(0, rval);
+    rados_release_read_op(op);
+  }
+
+  {
+    uint32_t init_value = -1;
+    uint32_t crc[3];
+    int rval;
+    rados_read_op_t op = rados_create_read_op();
+    rados_read_op_checksum(op, LIBRADOS_CHECKSUM_TYPE_CRC32C,
+                           reinterpret_cast<char *>(&init_value),
+			   sizeof(init_value), 0, len, 4,
+			   reinterpret_cast<char *>(&crc), sizeof(crc), &rval);
+    ASSERT_EQ(0, rados_read_op_operate(op, ioctx, obj, 0));
+    ASSERT_EQ(2U, crc[0]);
+    uint32_t expected_crc[2];
+    expected_crc[0] = ceph_crc32c(
+      -1, reinterpret_cast<const uint8_t*>(data), 4U);
+    expected_crc[1] = ceph_crc32c(
+      -1, reinterpret_cast<const uint8_t*>(data + 4), 4U);
+    ASSERT_EQ(expected_crc[0], crc[1]);
+    ASSERT_EQ(expected_crc[1], crc[2]);
+    ASSERT_EQ(0, rval);
+    rados_release_read_op(op);
+  }
+
+  remove_object();
+}
 
 TEST_F(CReadOpsTest, RWOrderedRead) {
   write_object();
@@ -595,6 +663,44 @@ TEST_F(CReadOpsTest, GetXattrs) {
   EXPECT_EQ(0, rval);
   rados_release_read_op(op);
   compare_xattrs(keys, vals, lens, 4, it);
+
+  remove_object();
+}
+
+TEST_F(CReadOpsTest, CmpExt) {
+  char buf[len];
+  size_t bytes_read = 0;
+  int cmpext_val = 0;
+  int read_val = 0;
+
+  write_object();
+
+  // cmpext with match should ensure that the following read is successful
+  rados_read_op_t op = rados_create_read_op();
+  ASSERT_TRUE(op);
+  // @obj, @data and @len correspond to object initialised by write_object()
+  rados_read_op_cmpext(op, data, len, 0, &cmpext_val);
+  rados_read_op_read(op, 0, len, buf, &bytes_read, &read_val);
+  ASSERT_EQ(0, rados_read_op_operate(op, ioctx, obj, 0));
+  ASSERT_EQ(len, bytes_read);
+  ASSERT_EQ(0, memcmp(data, buf, len));
+  ASSERT_EQ(cmpext_val, 0);
+  rados_release_read_op(op);
+
+  // cmpext with mismatch should fail and fill mismatch_buf accordingly
+  memset(buf, 0, sizeof(buf));
+  bytes_read = 0;
+  cmpext_val = 0;
+  read_val = 0;
+  op = rados_create_read_op();
+  ASSERT_TRUE(op);
+  // @obj, @data and @len correspond to object initialised by write_object()
+  rados_read_op_cmpext(op, "mismatch", strlen("mismatch"), 0, &cmpext_val);
+  rados_read_op_read(op, 0, len, buf, &bytes_read, &read_val);
+  ASSERT_EQ(-MAX_ERRNO, rados_read_op_operate(op, ioctx, obj, 0));
+  rados_release_read_op(op);
+
+  ASSERT_EQ(-MAX_ERRNO, cmpext_val);
 
   remove_object();
 }

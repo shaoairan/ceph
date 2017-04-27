@@ -24,8 +24,9 @@ set(prefix ${CMAKE_INSTALL_PREFIX})
 add_definitions("-DCEPH_LIBDIR=\"${CMAKE_INSTALL_FULL_LIBDIR}\"")
 add_definitions("-DCEPH_PKGLIBDIR=\"${CMAKE_INSTALL_FULL_PKGLIBDIR}\"")
 add_definitions("-DHAVE_CONFIG_H -D__CEPH__ -D_REENTRANT -D_THREAD_SAFE -D__STDC_FORMAT_MACROS")
+add_definitions("-D_FILE_OFFSET_BITS=64")
 if(LINUX)
-  add_definitions("-D_GNU_SOURCE -D_FILE_OFFSET_BITS=64")
+  add_definitions("-D_GNU_SOURCE")
 endif()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wtype-limits -Wignored-qualifiers -Winit-self")
@@ -33,9 +34,10 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wpointer-arith -Werror=format-security -fno
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftemplate-depth-1024 -Wno-invalid-offsetof")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wnon-virtual-dtor")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-pragmas")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unknown-pragmas")
 if(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -rdynamic")
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unknown-pragmas")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wstrict-null-sentinel -Woverloaded-virtual")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pie")
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL Clang)
@@ -81,22 +83,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
   endif()
 endif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
-  message(STATUS " we are ppc64le")
-  CHECK_C_COMPILER_FLAG("-maltivec" HAS_ALTIVEC)
-  if(HAS_ALTIVEC)
-    message(STATUS " HAS_ALTIVEC yes")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -maltivec")
-    set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -maltivec")
-  endif(HAS_ALTIVEC)
-  CHECK_C_COMPILER_FLAG("-mcpu=power8" HAVE_POWER8)
-  if(HAVE_POWER8)
-    message(STATUS " HAVE_POWER8 yes")
-  endif(HAVE_POWER8)
-else(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
+include(SIMDExt)
+if(HAVE_INTEL)
   set(CMAKE_ASM_COMPILER  ${PROJECT_SOURCE_DIR}/src/yasm-wrapper)
   set(CMAKE_ASM_FLAGS "-f elf64")
-endif(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
+endif()
 
 execute_process(
   COMMAND yasm -f elf64 ${CMAKE_SOURCE_DIR}/src/common/crc32c_intel_fast_asm.S -o /dev/null
@@ -301,12 +292,6 @@ configure_file(
   ${CMAKE_BINARY_DIR}/src/include/ceph_ver.h
   @ONLY)
 
-set(arch_files
-  arch/arm.c
-  arch/intel.c
-  arch/ppc.c
-  arch/probe.cc)
-
 set(auth_files
   auth/AuthAuthorizeHandler.cc
   auth/AuthClientHandler.cc
@@ -341,7 +326,7 @@ set(crush_srcs
   crush/CrushTester.cc
   crush/CrushLocation.cc)
 
-add_library(crush STATIC ${crush_srcs})
+add_library(crush_objs OBJECT ${crush_srcs})
 
 add_subdirectory(json_spirit)
 
@@ -354,8 +339,7 @@ if(HAVE_XIO)
     msg/xio/XioMsg.cc
     msg/xio/XioPool.cc
     msg/xio/XioMessenger.cc
-    msg/xio/XioPortal.cc
-    msg/xio/QueueStrategy.cc)
+    msg/xio/XioPortal.cc)
 endif(HAVE_XIO)
 
 set(async_rdma_common_srcs)
@@ -387,12 +371,6 @@ if(HAVE_DPDK)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${DPDK_INCLUDE_DIR}")
 endif(HAVE_DPDK)
 
-if(HAVE_GOOD_YASM_ELF64)
-  set(yasm_srcs
-    common/crc32c_intel_fast_asm.S
-    common/crc32c_intel_fast_zero_asm.S)
-endif(HAVE_GOOD_YASM_ELF64)
-
 add_library(common_buffer_obj OBJECT
   common/buffer.cc)
 
@@ -417,9 +395,9 @@ set(libcommon_files
   common/admin_socket_client.cc
   common/bloom_filter.cc
   common/Readahead.cc
-  ${crush_srcs}
   common/cmdparse.cc
   common/escape.c
+  common/url_escape.cc
   common/io_priority.cc
   common/Clock.cc
   common/ceph_time.cc
@@ -431,9 +409,6 @@ set(libcommon_files
   common/sctp_crc32.c
   common/crc32c.cc
   common/crc32c_intel_baseline.c
-  common/crc32c_intel_fast.c
-  common/crc32c_ppc.c
-  ${yasm_srcs}
   xxHash/xxhash.c
   common/assert.cc
   common/run_cmd.cc
@@ -472,6 +447,7 @@ set(libcommon_files
   msg/async/Stack.cc
   msg/async/PosixStack.cc
   msg/async/net_handler.cc
+  msg/QueueStrategy.cc
   ${xio_common_srcs}
   ${async_rdma_common_srcs}
   ${dpdk_common_srcs}
@@ -490,7 +466,6 @@ set(libcommon_files
   common/code_environment.cc
   common/dout.cc
   common/signal.cc
-  common/simple_spin.cc
   common/Thread.cc
   common/Formatter.cc
   common/HTMLFormatter.cc
@@ -527,9 +502,32 @@ set(libcommon_files
   common/fs_types.cc
   common/dns_resolve.cc
   common/hostname.cc
-  ${arch_files}
+  arch/probe.cc
   ${auth_files}
   ${mds_files})
+
+if(HAVE_ARM)
+  list(APPEND libcommon_files arch/arm.c)
+elseif(HAVE_INTEL)
+  list(APPEND libcommon_files arch/intel.c)
+elseif(HAVE_POWER8)
+  list(APPEND libcommon_files arch/ppc.c)
+endif()
+
+if(HAVE_INTEL)
+  list(APPEND libcommon_files
+    common/crc32c_intel_fast.c)
+  if(HAVE_GOOD_YASM_ELF64)
+    list(APPEND libcommon_files
+      common/crc32c_intel_fast_asm.S
+      common/crc32c_intel_fast_zero_asm.S)
+  endif(HAVE_GOOD_YASM_ELF64)
+elseif(HAVE_POWER8)
+  list(APPEND libcommon_files
+    common/crc32c_ppc.c
+    common/crc32c_ppc_asm.S)
+endif(HAVE_INTEL)
+
 if(LINUX)
   list(APPEND libcommon_files msg/async/EventEpoll.cc)
   message(STATUS " Using EventEpoll for events.")
@@ -537,10 +535,6 @@ elseif(FREEBSD OR APPLE)
   list(APPEND libcommon_files msg/async/EventKqueue.cc)
   message(STATUS " Using EventKqueue for events.")
 endif(LINUX)
-
-if(HAVE_POWER8)
-  list(APPEND libcommon_files common/crc32c_ppc_asm.S)
-endif(HAVE_POWER8)
 
 if(WITH_LTTNG AND WITH_EVENTTRACE)
   message(STATUS " Using EventTrace class.")
@@ -576,7 +570,8 @@ set(ceph_common_objs
   $<TARGET_OBJECTS:compressor_objs>
   $<TARGET_OBJECTS:common-objs>
   $<TARGET_OBJECTS:common_mountcephfs_objs>
-  $<TARGET_OBJECTS:global_common_objs>)
+  $<TARGET_OBJECTS:global_common_objs>
+  $<TARGET_OBJECTS:crush_objs>)
 set(ceph_common_deps
   json_spirit erasure_code rt ${LIB_RESOLV}
   ${Boost_THREAD_LIBRARY}
@@ -600,7 +595,6 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ceph_ver.c
   ${CMAKE_SOURCE_DIR}/src/test/encoding/ceph_dencoder.cc
   APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_BINARY_DIR}/src/include/ceph_ver.h)
 
-include(SIMDExt)
 if(HAVE_ARMV8_CRC)
   add_library(common_crc_aarch64 STATIC common/crc32c_aarch64.c)
   set_target_properties(common_crc_aarch64 PROPERTIES COMPILE_FLAGS "${CMAKE_C_FLAGS} ${ARMV8_CRC_COMPILE_FLAGS}")
@@ -845,9 +839,15 @@ add_subdirectory(test)
 endif(WITH_TESTS)
 
 add_subdirectory(compressor)
+
 add_subdirectory(tools)
 
+if(HAVE_INTEL)
+  add_subdirectory(crypto/isa-l)
+endif(HAVE_INTEL)
+
 if(WITH_TESTS)
+
 configure_file(${CMAKE_SOURCE_DIR}/src/ceph-coverage.in
   ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/ceph-coverage @ONLY)
 
@@ -912,8 +912,9 @@ if(WITH_LIBCEPHFS OR WITH_KRBD)
   add_library(parse_secret_objs OBJECT ${parse_secret_files})
 endif()
 
+add_subdirectory(client)
+
 if(WITH_LIBCEPHFS)
-  add_subdirectory(client)
   set(libcephfs_srcs libcephfs.cc)
   add_library(cephfs ${CEPH_SHARED} ${libcephfs_srcs})
   target_link_libraries(cephfs LINK_PRIVATE client ceph-common
@@ -949,19 +950,19 @@ if(WITH_LIBCEPHFS)
 
   install(TARGETS ceph-syn DESTINATION bin)
   install(TARGETS mount.ceph DESTINATION ${CMAKE_INSTALL_SBINDIR})
-
-  if(WITH_FUSE)
-    set(ceph_fuse_srcs
-      ceph_fuse.cc
-      client/fuse_ll.cc)
-    add_executable(ceph-fuse ${ceph_fuse_srcs})
-    target_link_libraries(ceph-fuse ${ALLOC_LIBS} ${FUSE_LIBRARIES}
-      client common global-static)
-    set_target_properties(ceph-fuse PROPERTIES COMPILE_FLAGS "-I${FUSE_INCLUDE_DIRS}")
-    install(TARGETS ceph-fuse DESTINATION bin)
-    install(PROGRAMS mount.fuse.ceph DESTINATION ${CMAKE_INSTALL_SBINDIR})
-  endif(WITH_FUSE)
 endif(WITH_LIBCEPHFS)
+
+if(WITH_FUSE)
+  set(ceph_fuse_srcs
+    ceph_fuse.cc
+    client/fuse_ll.cc)
+  add_executable(ceph-fuse ${ceph_fuse_srcs})
+  target_link_libraries(ceph-fuse ${ALLOC_LIBS} ${FUSE_LIBRARIES}
+    client common global-static)
+  set_target_properties(ceph-fuse PROPERTIES COMPILE_FLAGS "-I${FUSE_INCLUDE_DIRS}")
+  install(TARGETS ceph-fuse DESTINATION bin)
+  install(PROGRAMS mount.fuse.ceph DESTINATION ${CMAKE_INSTALL_SBINDIR})
+endif(WITH_FUSE)
 
 add_subdirectory(journal)
 
@@ -1049,6 +1050,9 @@ if(WITH_RADOSGW)
   add_dependencies(vstart radosgw radosgw-admin)
 endif(WITH_RADOSGW)
 
+if(WITH_LTTNG)
+  add_dependencies(vstart tracepoint_libraries)
+endif(WITH_LTTNG)
 
 # Everything you need to run CephFS tests
 add_custom_target(cephfs_testing DEPENDS

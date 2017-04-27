@@ -272,6 +272,9 @@ namespace librbd {
 			  ::SnapContext *snapc);
 
     // operations on the rbd_mirroring object
+    void mirror_uuid_get_start(librados::ObjectReadOperation *op);
+    int mirror_uuid_get_finish(bufferlist::iterator *it,
+                               std::string *uuid);
     int mirror_uuid_get(librados::IoCtx *ioctx, std::string *uuid);
     int mirror_uuid_set(librados::IoCtx *ioctx, const std::string &uuid);
     void mirror_mode_get_start(librados::ObjectReadOperation *op);
@@ -399,6 +402,27 @@ namespace librbd {
                                cls::rbd::GroupSpec *group_spec);
     int image_get_group(librados::IoCtx *ioctx, const std::string &oid,
 			cls::rbd::GroupSpec *group_spec);
+
+    // operations on rbd_trash object
+    void trash_add(librados::ObjectWriteOperation *op,
+                   const std::string &id,
+                   const cls::rbd::TrashImageSpec &trash_spec);
+    int trash_add(librados::IoCtx *ioctx, const std::string &id,
+                  const cls::rbd::TrashImageSpec &trash_spec);
+    void trash_remove(librados::ObjectWriteOperation *op,
+                      const std::string &id);
+    int trash_remove(librados::IoCtx *ioctx, const std::string &id);
+    void trash_list_start(librados::ObjectReadOperation *op);
+    int trash_list_finish(bufferlist::iterator *it,
+                          map<string, cls::rbd::TrashImageSpec> *entries);
+    int trash_list(librados::IoCtx *ioctx,
+                   map<string, cls::rbd::TrashImageSpec> *entries);
+    void trash_get_start(librados::ObjectReadOperation *op,
+                         const std::string &id);
+    int trash_get_finish(bufferlist::iterator *it,
+                         cls::rbd::TrashImageSpec *trash_spec);
+    int trash_get(librados::IoCtx *ioctx, const std::string &id,
+                  cls::rbd::TrashImageSpec *trash_spec);
 
   } // namespace cls_client
 } // namespace librbd

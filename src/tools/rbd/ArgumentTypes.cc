@@ -114,6 +114,17 @@ void add_image_option(po::options_description *opt,
     (name.c_str(), po::value<std::string>(), description.c_str());
 }
 
+void add_image_id_option(po::options_description *opt,
+                         const std::string &desc_suffix) {
+  std::string name = IMAGE_ID;
+  std::string description = "image id";
+  description += desc_suffix;
+
+  // TODO add validator
+  opt->add_options()
+    (name.c_str(), po::value<std::string>(), description.c_str());
+}
+
 void add_group_option(po::options_description *opt,
 		      ArgumentModifier modifier,
 		      const std::string &desc_suffix) {
@@ -249,7 +260,6 @@ void add_journal_spec_options(po::options_description *pos,
   add_journal_option(opt, modifier);
 }
 
-
 void add_create_image_options(po::options_description *opt,
                               bool include_format) {
   // TODO get default image format from conf
@@ -291,6 +301,12 @@ void add_size_option(boost::program_options::options_description *opt) {
   opt->add_options()
     ((IMAGE_SIZE + ",s").c_str(), po::value<ImageSize>()->required(),
      "image size (in M/G/T)");
+}
+
+void add_sparse_size_option(boost::program_options::options_description *opt) {
+  opt->add_options()
+    (IMAGE_SPARSE_SIZE.c_str(), po::value<ImageObjectSize>(),
+    "sparse size in B/K/M [default: 4K]");
 }
 
 void add_path_options(boost::program_options::options_description *pos,

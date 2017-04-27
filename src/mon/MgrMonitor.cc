@@ -25,7 +25,13 @@
 
 #define dout_subsys ceph_subsys_mon
 #undef dout_prefix
-#define dout_prefix *_dout << "MgrMonitor " << __func__ << " "
+#define dout_prefix _prefix(_dout, mon, map)
+static ostream& _prefix(std::ostream *_dout, Monitor *mon,
+			const MgrMap& mgrmap) {
+  return *_dout << "mon." << mon->name << "@" << mon->rank
+		<< "(" << mon->get_state_name()
+		<< ").mgr e" << mgrmap.get_epoch() << " ";
+}
 
 void MgrMonitor::create_initial()
 {
@@ -70,7 +76,7 @@ void MgrMonitor::encode_pending(MonitorDBStore::TransactionRef t)
 {
   dout(10) << __func__ << " " << pending_map << dendl;
   bufferlist bl;
-  pending_map.encode(bl, 0);
+  pending_map.encode(bl, mon->get_quorum_con_features());
   put_version(t, pending_map.epoch, bl);
   put_last_committed(t, pending_map.epoch);
 }
@@ -150,24 +156,11 @@ bool MgrMonitor::preprocess_beacon(MonOpRequestRef op)
   dout(4) << "beacon from " << m->get_gid() << dendl;
 
   if (!check_caps(op, m->get_fsid())) {
+    // drop it on the floor
     return true;
   }
 
-  last_beacon[m->get_gid()] = ceph_clock_now();
-
-  if (pending_map.active_gid == m->get_gid()
-      && pending_map.active_addr == m->get_server_addr()
-      && pending_map.get_available() == m->get_available()) {
-    dout(4) << "Daemon already active in map" << dendl;
-    return true;
-  }
-
-  if (pending_map.standbys.count(m->get_gid()) > 0
-      && pending_map.active_gid != 0) {
-    dout(4) << "Daemon already standby in map" << dendl;
-    return true;
-  }
-
+  // always send this to the leader's prepare_beacon()
   return false;
 }
 
@@ -243,7 +236,7 @@ bool MgrMonitor::prepare_beacon(MonOpRequestRef op)
     dout(10) << "no change" << dendl;
   }
 
-  return true;
+  return updated;
 }
 
 void MgrMonitor::check_subs()
@@ -389,10 +382,10 @@ void MgrMonitor::tick()
       && last_beacon.at(pending_map.active_gid) < cutoff) {
 
     drop_active();
+    propose = true;
     dout(4) << "Dropping active" << pending_map.active_gid << dendl;
     if (promote_standby()) {
       dout(4) << "Promoted standby " << pending_map.active_gid << dendl;
-      propose = true;
     } else {
       dout(4) << "Active is laggy but have no standbys to replace it" << dendl;
     }
@@ -517,8 +510,8 @@ bool MgrMonitor::prepare_command(MonOpRequestRef op)
       }
     }
 
-    if (changed) {
-      tick();
+    if (changed && pending_map.active_gid == 0) {
+      promote_standby();
     }
   } else {
     r = -ENOSYS;
