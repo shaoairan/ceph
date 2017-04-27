@@ -52,17 +52,17 @@ namespace ceph {
       return get_chunk_count() - get_data_chunk_count();
     }
 
-    virtual unsigned int get_sub_chunk_count() {
+    virtual int get_sub_chunk_count() {
       return 1;
     }
 
-    virtual int get_repair_sub_chunk_count(const set<int> &want_to_read){
-      return 1;
-    }
-
-    int minimum_to_decode(const set<int> &want_to_read,
+    virtual int minimum_to_decode(const set<int> &want_to_read,
                                   const set<int> &available_chunks,
-                                  set<int> *minimum) override;
+                                  set<int> *minimum);
+
+    virtual int minimum_to_decode2(const set<int> &want_to_read,
+                                  const set<int> &available,
+                                  map<int, list<pair<int,int>>> *minimum);
 
     int minimum_to_decode_with_cost(const set<int> &want_to_read,
                                             const map<int, int> &available,
@@ -82,26 +82,13 @@ namespace ceph {
                        const map<int, bufferlist> &chunks,
                        map<int, bufferlist> *decoded) override;
 
+    int decode2(const set<int> &want_to_read,
+                const map<int, bufferlist> &chunks,
+                map<int, bufferlist> *decoded, int chunk_size);
+
     int decode_chunks(const set<int> &want_to_read,
                               const map<int, bufferlist> &chunks,
                               map<int, bufferlist> *decoded) override;
-
-    virtual int minimum_to_repair(const set<int> &want_to_read, 
-                                  const set<int> &available_chunks, 
-                                  set<int> *minimum);
-
-    virtual int is_repair(const set<int> &want_to_read,
-                       const set<int> &available_chunks);
-
-    
-    virtual void get_repair_subchunks(const set<int> &to_repair,
-                                   const set<int> &helper_chunks,
-                                   int helper_chunk_ind,
-                                   map<int, int> &repair_sub_chunks_ind);
-
-    virtual int repair(const set<int> &want_to_read,
-                       const map<int, bufferlist> &chunks,
-                       map<int, bufferlist> *repaired);
 
     const vector<int> &get_chunk_mapping() const override;
 

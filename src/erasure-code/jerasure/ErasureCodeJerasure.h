@@ -81,29 +81,17 @@ public:
 
   unsigned int get_chunk_size(unsigned int object_size) const override;
 
-  virtual unsigned int get_sub_chunk_count() {
+  virtual int get_sub_chunk_count() {
     return sub_chunk_no;
   }
 
-  virtual int get_repair_sub_chunk_count(const set<int> &want_to_read){  
-    return sub_chunk_no;
-  }
-
-  virtual int minimum_to_repair(const set<int> &want_to_read,
+  virtual int minimum_to_decode2(const set<int> &want_to_read,
                                    const set<int> &available_chunks,
-                                   set<int> *minimum);
+                                   map<int, list<pair<int, int>>> *minimum);
 
-  virtual int repair(const set<int> &want_to_read,
-                       const map<int, bufferlist> &chunks,
-                       map<int, bufferlist> *repaired);
-
-  virtual void get_repair_subchunks(const set<int> &to_repair,
-                                   const set<int> &helper_chunks,
-                                   int helper_chunk_ind,
-                                   map<int, int> &repair_sub_chunks_ind);
-
-  virtual int is_repair(const set<int> &want_to_read,
-                                   const set<int> &available_chunks);
+  virtual int decode2(const set<int> &want_to_read,
+                const map<int, bufferlist> &chunks,
+                map<int, bufferlist> *decoded, int chunk_size);
 
   int encode_chunks(const set<int> &want_to_encode,
 			    map<int, bufferlist> *encoded) override;
@@ -344,22 +332,28 @@ public:
       free(B_buf);
     }
   }
+  virtual int minimum_to_decode2(const set<int> &want_to_read,
+                                   const set<int> &available_chunks,
+                                   map<int, list<pair<int, int>>> *minimum);
+ virtual int decode2(const set<int> &want_to_read,
+                const map<int, bufferlist> &chunks,
+                map<int, bufferlist> *decoded, int chunk_size);
 
-  virtual int is_repair(const set<int> &want_to_read,
+  int is_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks);
 
-  virtual int minimum_to_repair(const set<int> &want_to_read,
+  int minimum_to_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks,
                                    set<int> *minimum);
 
-  virtual void get_repair_subchunks(const set<int> &to_repair,
+  void get_repair_subchunks(const set<int> &to_repair,
                                    const set<int> &helper_chunks,
                                    int helper_chunk_ind,
                                    map<int, int> &repair_sub_chunks_ind);
 
-  virtual int get_repair_sub_chunk_count(const set<int> &want_to_read);
+  int get_repair_sub_chunk_count(const set<int> &want_to_read);
 
-  virtual int repair(const set<int> &want_to_read,
+  int repair(const set<int> &want_to_read,
                        const map<int, bufferlist> &chunks,
                        map<int, bufferlist> *repaired);
 
@@ -374,6 +368,7 @@ public:
   virtual void prepare();
 private:
   virtual int parse(ErasureCodeProfile &profile, ostream *ss);
+  void group_repair_subchunks(map<int,int> &repair_subchunks, list<pair<int,int> > &grouped_subchunks);
   int encode_systematic(char** data_ptrs, char** code_ptrs, int size);
   int decode_layered(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size);
   int repair_lost_chunks(map<int,char*> &repaired_data, set<int> &aloof_nodes,

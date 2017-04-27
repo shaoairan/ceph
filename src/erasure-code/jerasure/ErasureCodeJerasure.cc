@@ -205,31 +205,17 @@ int ErasureCodeJerasure::decode_chunks(const set<int> &want_to_read,
   return res;
 }
 
-int ErasureCodeJerasure::minimum_to_repair(const set<int> &want_to_read,
-                                   const set<int> &available_chunks,
-                                   set<int> *minimum)
-{
-    return ErasureCode::minimum_to_decode(want_to_read, available_chunks, minimum);
+int ErasureCodeJerasure::minimum_to_decode2(const set<int> &want_to_read,
+                                  const set<int> &available,
+                                  map<int, list<pair<int,int>>> *minimum){
+  return ErasureCode::minimum_to_decode2(want_to_read, available, minimum);
 }
 
-int ErasureCodeJerasure::repair(const set<int> &want_to_read,
-                        const map<int, bufferlist> &chunks,
-                        map<int, bufferlist> *repaired)
+int ErasureCodeJerasure::decode2(const set<int> &want_to_read,
+                const map<int, bufferlist> &chunks,
+                map<int, bufferlist> *decoded, int chunk_size)
 {
-    return ErasureCode::repair(want_to_read, chunks, repaired);
-}
-
-int ErasureCodeJerasure::is_repair(const set<int> &want_to_read,
-                                   const set<int> &available_chunks)
-{
-  return 0;
-}
-
-void ErasureCodeJerasure::get_repair_subchunks(const set<int> &to_repair,
-                                   const set<int> &helper_chunks,
-                                   int helper_chunk_ind,
-                                   map<int, int> &repair_sub_chunks_ind){
-return;
+  return ErasureCode::decode(want_to_read, chunks, decoded);
 }
 
 bool ErasureCodeJerasure::is_prime(int value)
@@ -729,7 +715,48 @@ void ErasureCodeJerasureCLMSR::prepare()
   for(int i = 0; i < q*t; i++)B_buf[i] = NULL;
 }
 
+int ErasureCodeJerasureCLMSR::minimum_to_decode2(const set<int> &want_to_read,
+                                  const set<int> &available,
+                                  map<int, list<pair<int,int>>> *minimum){
+  set<int> minimum_shard_ids;
 
+  if(is_repair(want_to_read, available)) {
+    int r = minimum_to_repair(want_to_read, available, &minimum_shard_ids);
+    map<int, int> repair_subchunks;
+    get_repair_subchunks(want_to_read, minimum_shard_ids,
+                           0, repair_subchunks);
+
+    list<pair<int,int>> grouped_repair_subchunks;
+    group_repair_subchunks(repair_subchunks, grouped_repair_subchunks);
+
+    for(set<int>::iterator i=minimum_shard_ids.begin();
+        i != minimum_shard_ids.end(); ++i){
+      minimum->insert(make_pair(*i, grouped_repair_subchunks));
+    }
+    return r;
+  } else {
+    return ErasureCode::minimum_to_decode2(want_to_read, available, minimum);
+  }
+}
+
+int ErasureCodeJerasureCLMSR::decode2(const set<int> &want_to_read,
+                const map<int, bufferlist> &chunks,
+                map<int, bufferlist> *decoded, int chunk_size){
+  set<int> avail;
+  for(map<int, bufferlist>::const_iterator i = chunks.begin();
+      i != chunks.end(); ++i){
+    avail.insert(i->first);
+  }
+
+  if(is_repair(want_to_read, avail)){
+    return repair(want_to_read, chunks, decoded);
+  } else {
+    return ErasureCode::decode(want_to_read, chunks, decoded);
+  }
+
+
+
+}
 int ErasureCodeJerasureCLMSR::minimum_to_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks,
                                    set<int> *minimum)
@@ -809,6 +836,32 @@ void ErasureCodeJerasureCLMSR::get_repair_subchunks(const set<int> &to_repair,
     }
   }
 }
+
+void ErasureCodeJerasureCLMSR::group_repair_subchunks(map<int,int> &repair_subchunks, list<pair<int,int> > &grouped_subchunks) {
+  set<int> temp;
+  for(map<int,int>:: iterator r = repair_subchunks.begin(); r!= repair_subchunks.end();r++) {
+    temp.insert(r->second);
+  }
+  int start = -1;
+  int end =  -1 ;
+  for(set<int>::iterator r = temp.begin(); r!= temp.end();r++) {
+    if(start == -1) {
+      start = *r;
+      end = *r;
+    }
+    else if(*r == end+1) {
+      end = *r;
+    }
+    else {
+      grouped_subchunks.push_back(make_pair(start,end-start+1));
+      start = *r;
+      end = *r;
+    }
+  }
+  if(start != -1) {
+    grouped_subchunks.push_back(make_pair(start,end-start+1));
+  }
+}   
 
 int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks){

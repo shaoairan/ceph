@@ -254,7 +254,7 @@ struct RecoveryMessages {
   void read(
     ECBackend *ec,
     const hobject_t &hoid, uint64_t off, uint64_t len,
-    const set<pg_shard_t> &need,
+    const map<pg_shard_t, list<pair<int,int>>> &need,
     bool attrs) {
     list<boost::tuple<uint64_t, uint64_t, uint32_t> > to_read;
     to_read.push_back(boost::make_tuple(off, len, 0));
@@ -405,12 +405,7 @@ void ECBackend::handle_recovery_read_complete(
   dout(10) << __func__ << ": " << from << dendl;
   int r;
   set<int> want_to_read(op.missing_on_shards.begin(), op.missing_on_shards.end());
-  bool is_repair = ec_impl->is_repair(want_to_read, helper_nodes);
-  if(is_repair){
-    r = ECUtil::repair(sinfo, ec_impl, from, target);
-  } else {
-    r = ECUtil::decode(sinfo, ec_impl, from, target);
-  }
+  r = ECUtil::decode(sinfo, ec_impl, from, target);
   assert(r == 0);
   if (attrs) {
     op.xattrs.swap(*attrs);
@@ -549,7 +544,7 @@ void ECBackend::continue_recovery_op(
 	::encode(*(op.hinfo), op.xattrs[ECUtil::get_hinfo_key()]);
       }
 
-      set<pg_shard_t> to_read;
+      map<pg_shard_t,list<pair<int,int>>> to_read;
       int r = get_min_avail_to_read_shards(
 	op.hoid, want, true, false, &to_read);
       if (r != 0) {
@@ -958,24 +953,8 @@ void ECBackend::handle_sub_read(
       ++i) {
     int r = 0;
     ECUtil::HashInfoRef hinfo;
-    map<int,int> repair_sub_chunks_ind;
-    map<hobject_t, bool>::const_iterator is_repair_op = op.is_repair.find(i->first);
-    assert(is_repair_op != op.is_repair.end());
-    if(is_repair_op->second) {
-      //need to give helper(shard id) index instead of 0
-      map<hobject_t, set<int>>::const_iterator lost_nodes = op.repair_lost_nodes.find(i->first);
-      map<hobject_t, set<int>>::const_iterator helper_nodes = op.repair_helper_nodes.find(i->first);
-      map<hobject_t, int>::const_iterator my_shard_id = op.helper_shard_ids.find(i->first);
-
-      assert(lost_nodes != op.repair_lost_nodes.end());
-      assert(helper_nodes != op.repair_helper_nodes.end());
-      assert(my_shard_id != op.helper_shard_ids.end());
-
-      ec_impl->get_repair_subchunks(lost_nodes->second, 
-                                     helper_nodes->second, 
-                                     my_shard_id->second,repair_sub_chunks_ind);
-    }
-
+    int subchunk_size = sinfo.get_chunk_size() / ec_impl->get_sub_chunk_count(); 
+    dout(10) << __func__ << " subchunk_size:" << subchunk_size << dendl;
 
     if (!get_parent()->get_pool().is_hacky_ecoverwrites()) {
       hinfo = get_hash_info(i->first);
@@ -989,26 +968,32 @@ void ECBackend::handle_sub_read(
 
     for (auto j = i->second.begin(); j != i->second.end(); ++j) {
       bufferlist bl;
-      if(is_repair_op->second) {
+      if((op.subchunks.find(i->first)->second.size() == 1) && (op.subchunks.find(i->first)->second.front().second == ec_impl->get_sub_chunk_count())) {
+        dout(10) << __func__ << " case1: reading the complete chunk/shard." << dendl;
         r = store->read(
 	  ch,
 	  ghobject_t(i->first, ghobject_t::NO_GEN, shard),
 	  j->get<0>(),
 	  j->get<1>(),
-	  bl, sinfo.get_chunk_size(), 
-          ec_impl->get_sub_chunk_count(),
-          repair_sub_chunks_ind, 
-          j->get<2>(),
-	  true);
+	  bl, j->get<2>(),
+	  true); // Allow EIO return
       } else {
-      r = store->read(
-	ch,
-	ghobject_t(i->first, ghobject_t::NO_GEN, shard),
-	j->get<0>(),
-	j->get<1>(),
-	bl, j->get<2>(),
-	true); // Allow EIO return
-      }
+        dout(10) << __func__ << " case2: going to do fragmented read." << dendl;
+        for(int m = 0; m < (int)j->get<1>(); m += sinfo.get_chunk_size()){
+          for(list<pair<int,int>>::const_iterator k = op.subchunks.find(i->first)->second.begin();
+               k != op.subchunks.find(i->first)->second.end(); ++k){
+            bufferlist bl0;
+            r = store->read(
+                ch,
+                ghobject_t(i->first, ghobject_t::NO_GEN, shard),
+                j->get<0>() + m + (k->first)*subchunk_size,
+                (k->second)*subchunk_size,
+                bl0, j->get<2>(),
+                true);
+            bl.claim_append(bl0);      
+          }
+        }
+     }
 
       if (r < 0) {
 	get_parent()->clog_error() << __func__
@@ -1195,10 +1180,12 @@ void ECBackend::handle_sub_read_reply(
         have.insert(j->first.shard);
         dout(20) << __func__ << " have shard=" << j->first.shard << dendl;
       }
-      set<int> want_to_read, dummy_minimum;
+      set<int> want_to_read;
+      map<int,list<pair<int,int>>> dummy_minimum;
       get_want_to_read_shards(&want_to_read);
       int err;
-      if ((err = ec_impl->minimum_to_decode(want_to_read, have, &dummy_minimum)) < 0) {
+      dout(20) << __func__ << " want_to_read:" << want_to_read << " have:"<< have << dendl;
+      if ((err = ec_impl->minimum_to_decode2(want_to_read, have, &dummy_minimum)) < 0) {
 	dout(20) << __func__ << " minimum_to_decode failed" << dendl;
         if (rop.in_progress.empty()) {
 	  // If we don't have enough copies and we haven't sent reads for all shards
@@ -1483,7 +1470,7 @@ int ECBackend::get_min_avail_to_read_shards(
   const set<int> &want,
   bool for_recovery,
   bool do_redundant_reads,
-  set<pg_shard_t> *to_read)
+  map<pg_shard_t, list<pair<int,int>>> *to_read)
 {
   // Make sure we don't do redundant reads for recovery
   assert(!for_recovery || !do_redundant_reads);
@@ -1542,35 +1529,29 @@ int ECBackend::get_min_avail_to_read_shards(
     }
   }
 
-  set<int> need;
-  dout(10) << __func__ << " have size:" << have.size() << " want size:" << want.size() << " n:"<< ec_impl->get_chunk_count() << dendl;
-  int r;
-  bool is_repair = ec_impl->is_repair(want, have);
-  
-  if( is_repair){
-    dout(20) << __func__ << ": Yippie :) This case qualifies for repair" << dendl;
-    r = ec_impl->minimum_to_repair(want, have, &need);
-  } else {
-    dout(20) << __func__ << ": :( This case does not qualify for repair" << dendl;
-    r = ec_impl->minimum_to_decode(want, have, &need);
-  }
+  map<int, list<pair<int,int>>> need;
+  int r = ec_impl->minimum_to_decode2(want, have, &need);
   if (r < 0){
     dout(5) << __func__ << ": minimum to decode/repair failed" << dendl;
     return r;
   }
 
   if (do_redundant_reads) {
-      need.swap(have);
+      list<pair<int,int>> subchunks_list;
+      subchunks_list.push_back(make_pair(0, ec_impl->get_sub_chunk_count()));
+      for(auto &&i: have){
+        need[i] = subchunks_list;
+      }
   } 
 
   if (!to_read)
     return 0;
 
-  for (set<int>::iterator i = need.begin();
+  for (map<int,list<pair<int,int>>>::iterator i = need.begin();
        i != need.end();
        ++i) {
-    assert(shards.count(shard_id_t(*i)));
-    to_read->insert(shards[shard_id_t(*i)]);
+    assert(shards.count(shard_id_t(i->first)));
+    to_read->insert(make_pair(shards[shard_id_t(i->first)], i->second));
   }
   return 0;
 }
@@ -1578,7 +1559,7 @@ int ECBackend::get_min_avail_to_read_shards(
 int ECBackend::get_remaining_shards(
   const hobject_t &hoid,
   const set<int> &avail,
-  set<pg_shard_t> *to_read)
+  map<pg_shard_t, list<pair<int,int>>> *to_read)
 {
   set<int> need;
   map<shard_id_t, pg_shard_t> shards;
@@ -1600,12 +1581,14 @@ int ECBackend::get_remaining_shards(
   if (!to_read)
     return 0;
 
+  list<pair<int,int>> subchunks;
+  subchunks.push_back(make_pair(0, ec_impl->get_sub_chunk_count()));
   for (set<int>::iterator i = need.begin();
        i != need.end();
        ++i) {
     assert(shards.count(shard_id_t(*i)));
     if (avail.find(*i) == avail.end())
-      to_read->insert(shards[shard_id_t(*i)]);
+      to_read->insert(make_pair(shards[shard_id_t(*i)], subchunks));
   }
   return 0;
 }
@@ -1645,39 +1628,17 @@ void ECBackend::do_read_op(ReadOp &op)
        i != op.to_read.end();
        ++i) {
     bool need_attrs = i->second.want_attrs;
-    set<int> helper_nodes;
-    bool is_repair = false;
 
-    if(op.for_recovery) {
-
-      assert(recovery_ops.count(i->first));
-      RecoveryOp &rec_op = recovery_ops[i->first];
-
-      set<int> want_to_read(rec_op.missing_on_shards.begin(), rec_op.missing_on_shards.end());
-
-      for(set<pg_shard_t>::const_iterator j = i->second.need.begin();
-          j != i->second.need.end(); ++j) {
-        helper_nodes.insert(j->shard);
-        messages[*j].repair_lost_nodes[i->first] = want_to_read;
-        messages[*j].helper_shard_ids[i->first] = (int)j->shard;
-      }
-   
-      is_repair = ec_impl->is_repair(want_to_read, helper_nodes);
-    }
-
-    for (set<pg_shard_t>::const_iterator j = i->second.need.begin();
+    for (map<pg_shard_t, list<pair<int,int>>>::const_iterator j = i->second.need.begin();
 	 j != i->second.need.end();
 	 ++j) {
       if (need_attrs) {
-	messages[*j].attrs_to_read.insert(i->first);
+	messages[j->first].attrs_to_read.insert(i->first);
 	need_attrs = false;
       }
-
-      messages[*j].is_repair[i->first] = is_repair;
-      if(is_repair)messages[*j].repair_helper_nodes[i->first] = helper_nodes;
-
-      op.obj_to_source[i->first].insert(*j);
-      op.source_to_obj[*j].insert(i->first);
+      messages[j->first].subchunks[i->first] = j->second;
+      op.obj_to_source[i->first].insert(j->first);
+      op.source_to_obj[j->first].insert(i->first);
     }
     for (list<boost::tuple<uint64_t, uint64_t, uint32_t> >::const_iterator j =
 	   i->second.to_read.begin();
@@ -1685,10 +1646,10 @@ void ECBackend::do_read_op(ReadOp &op)
 	 ++j) {
       pair<uint64_t, uint64_t> chunk_off_len =
 	sinfo.aligned_offset_len_to_chunk(make_pair(j->get<0>(), j->get<1>()));
-      for (set<pg_shard_t>::const_iterator k = i->second.need.begin();
+      for (map<pg_shard_t,list<pair<int,int>>>::const_iterator k = i->second.need.begin();
 	   k != i->second.need.end();
 	   ++k) {
-	messages[*k].to_read[i->first].push_back(
+	messages[k->first].to_read[i->first].push_back(
 	  boost::make_tuple(
 	    chunk_off_len.first,
 	    chunk_off_len.second,
@@ -2282,7 +2243,7 @@ void ECBackend::objects_read_and_reconstruct(
     
   map<hobject_t, read_request_t> for_read_op;
   for (auto &&to_read: reads) {
-    set<pg_shard_t> shards;
+    map<pg_shard_t, list<pair<int,int>>> shards;
     int r = get_min_avail_to_read_shards(
       to_read.first,
       want_to_read,
@@ -2324,7 +2285,7 @@ int ECBackend::send_all_remaining_reads(
   for (set<pg_shard_t>::iterator i = ots.begin(); i != ots.end(); ++i)
     already_read.insert(i->shard);
   dout(10) << __func__ << " have/error shards=" << already_read << dendl;
-  set<pg_shard_t> shards;
+  map<pg_shard_t, list<pair<int,int>>> shards;
   int r = get_remaining_shards(hoid, already_read, &shards);
   if (r)
     return r;

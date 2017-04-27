@@ -181,10 +181,7 @@ void ECSubRead::encode(bufferlist &bl, uint64_t features) const
     }
     ::encode(tmp, bl);
     ::encode(attrs_to_read, bl);
-    ::encode(is_repair, bl);
-    ::encode(repair_lost_nodes, bl);
-    ::encode(repair_helper_nodes, bl);
-    ::encode(helper_shard_ids, bl);
+    ::encode(subchunks, bl);
     ENCODE_FINISH(bl);
     return;
   }
@@ -194,10 +191,7 @@ void ECSubRead::encode(bufferlist &bl, uint64_t features) const
   ::encode(tid, bl);
   ::encode(to_read, bl);
   ::encode(attrs_to_read, bl);
-  ::encode(is_repair, bl);
-  ::encode(repair_lost_nodes, bl);
-  ::encode(repair_helper_nodes, bl);
-  ::encode(helper_shard_ids, bl);
+  ::encode(subchunks,bl);
   ENCODE_FINISH(bl);
 }
 
@@ -223,15 +217,10 @@ void ECSubRead::decode(bufferlist::iterator &bl)
   }
   ::decode(attrs_to_read, bl);
   if((struct_v > 2) && (struct_v > struct_compat) ){
-    ::decode(is_repair,bl);
-    ::decode(repair_lost_nodes, bl);
-    ::decode(repair_helper_nodes, bl);
-    ::decode(helper_shard_ids, bl);
-  }
-  else{
-    for (set<hobject_t>::iterator m = attrs_to_read.begin();
-	  m != attrs_to_read.end(); ++m) {
-      is_repair[*m] = false;
+  ::decode(subchunks, bl);
+  } else {
+    for(set<hobject_t>::iterator i = attrs_to_read.begin(); i != attrs_to_read.end(); ++i) {
+      subchunks[*i].push_back(make_pair(0,1));
     }
   }
   DECODE_FINISH(bl);

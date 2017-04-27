@@ -60,6 +60,28 @@ int ErasureCode::minimum_to_decode(const set<int> &want_to_read,
   return 0;
 }
 
+int ErasureCode::minimum_to_decode2(const set<int> &want_to_read,
+                                   const set<int> &available_chunks,
+                                   map<int, list<pair<int, int>>> *minimum)
+{
+  set<int> minimum_shard_ids;
+  int r = minimum_to_decode(want_to_read, available_chunks, &minimum_shard_ids);
+
+  if ( r != 0) return r;
+
+  list<pair<int, int>> default_subchunks;
+
+  //by default there is only one subchunk within a chunk in an ErasureCode
+  default_subchunks.push_back(make_pair(0,get_sub_chunk_count()));
+  
+
+  for(set<int>::iterator i=minimum_shard_ids.begin();
+      i != minimum_shard_ids.end(); ++i){
+    minimum->insert(make_pair(*i, default_subchunks));
+  }
+  return 0;
+}
+
 int ErasureCode::minimum_to_decode_with_cost(const set<int> &want_to_read,
                                              const map<int, int> &available,
                                              set<int> *minimum)
@@ -168,38 +190,18 @@ int ErasureCode::decode(const set<int> &want_to_read,
   return decode_chunks(want_to_read, chunks, decoded);
 }
 
+int ErasureCode::decode2(const set<int> &want_to_read,
+                        const map<int, bufferlist> &chunks,
+                        map<int, bufferlist> *decoded, int chunk_size)
+{
+  return decode(want_to_read, chunks, decoded);
+}
+
 int ErasureCode::decode_chunks(const set<int> &want_to_read,
                                const map<int, bufferlist> &chunks,
                                map<int, bufferlist> *decoded)
 {
   assert("ErasureCode::decode_chunks not implemented" == 0);
-}
-
-int ErasureCode::minimum_to_repair(const set<int> &want_to_read,
-                                   const set<int> &available_chunks,
-                                   set<int> *minimum)
-{
-  return minimum_to_decode(want_to_read, available_chunks, minimum);
-}
-
-int ErasureCode::is_repair(const set<int> &want_to_read,
-                       const set<int> &available_chunks)
-{
-  return 0;
-}
-
-void ErasureCode::get_repair_subchunks(const set<int> &to_repair,
-                                   const set<int> &helper_chunks,
-                                   int helper_chunk_ind,
-                                   map<int, int> &repair_sub_chunks_ind){
-return;
-}
-
-int ErasureCode::repair(const set<int> &want_to_read,
-                        const map<int, bufferlist> &chunks,
-                        map<int, bufferlist> *decoded)
-{
-  return decode(want_to_read, chunks, decoded);
 }
 
 int ErasureCode::parse(const ErasureCodeProfile &profile,

@@ -106,12 +106,6 @@ int encode(
   const set<int> &want,
   map<int, bufferlist> *out);
 
-int repair(
-  const stripe_info_t &sinfo,
-  ErasureCodeInterfaceRef &ec_impl,
-  map<int, bufferlist> &to_decode,
-  map<int, bufferlist*> &out);
-
 class HashInfo {
   uint64_t total_chunk_size = 0;
   vector<uint32_t> cumulative_shard_hashes;
