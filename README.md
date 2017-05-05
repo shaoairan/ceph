@@ -1,216 +1,94 @@
-============================================
-Ceph - a scalable distributed storage system
-============================================
+#Coupled Layer (CL) Code#
+MDS codes that uses optimal repair bandwidth,
+disk bandwidth during a node repair.
 
-Please see http://ceph.com/ for current info.
+It is defined by parameters (k,m,d), k data chunks are encoded to get m parity chunks. 
+This code can recover from loss of any m chunks out of the k+m chunks.
+During repair, d repair chunks will be used where each repair chunk is a
+fraction of the complete chunk.
 
+How to Use:
+ceph osd erasure-code-profile set cl\_msr\_profile k=4 m=2 d=5 plugin=jerasure technique=cl\_msr ruleset-failure-domain=osd
 
-Contributing Code
-=================
+##New functions added to Ceph's ErasureCodeInterface##
 
-Most of Ceph is licensed under the LGPL version 2.1.  Some
-miscellaneous code is under BSD-style license or is public domain.
-The documentation is licensed under Creative Commons
-Attribution-ShareAlike (CC BY-SA).  There are a handful of headers
-included here that are licensed under the GPL.  Please see the file
-COPYING for a full inventory of licenses by file.
 
-Code contributions must include a valid "Signed-off-by" acknowledging
-the license for the modified or contributed file.  Please see the file
-SubmittingPatches.rst for details on what that means and on how to
-generate and submit patches.
+###int is_repair(const set<int> &want_to_read, const set<int> &available_chunks)###  
 
-We do not require assignment of copyright to contribute code; code is
-contributed under the terms of the applicable license.
+####Input Parameters:####
+*want_to_read*: Chunk indices to be decoded.  
+*available_chunks*: Available chunk indices containing valid data.
 
+Checks if lost chunk can be retrieved using ErasureCodeJerasureCLMSR repair algorithm. Returns 1 if it is it is a repair case, 0 otherwise.
 
-Checking out the source
-=======================
 
-You can clone from github with
+###void get_repair_subchunks(const set<int> &to_repair, const set<int> &helper_chunks, int helper_chunk_ind, map<int, int> &repair_sub_chunks_ind)###
+####Input Parameters:####
+*to_repair*: Set of chunk indices  that need to be repaired  
+*helper_chunks*: Set of chunk indices acting as helpers for repairing lost chunks   
+*helper_chunk_ind*: Current helper chunk index  
 
-	git clone git@github.com:ceph/ceph
+####Output Parameters:####
+*repair_sub_chunks_ind*: Map to be populated with repair plane indices.  
 
-or, if you are not a github user,
+Gets indices of repair planes.Returns nothing.
 
-	git clone git://github.com/ceph/ceph
 
-Ceph contains many git submodules that need to be checked out with
+###int minimum_to_repair(const set<int> &want_to_read, const set<int> &available_chunks, set<int> *minimum)###  
 
-	git submodule update --init --recursive
+####Input Parameters:####   
+*want_to_read*: Chunk indices to be decoded  
+*available_chunks*: Available chunk indices containing valid data  
 
+####Output Parameters:####  
+*minimum*: Minimum chunk indices required for retrieval of lost chunks  
 
-Build Prerequisites
-===================
+Finds the chunk indices required to repair lost chunk. Returns minimum no of chunk indices required to retrieve lost chunks.
 
-The list of Debian or RPM packages dependencies can be installed with:
 
-	./install-deps.sh
+###int repair(const set<int> &want_to_read, const map<int, bufferlist> &chunks, map<int, bufferlist> *repaired)###  
 
+####Input parameters:####  
+*want_to_read*: Chunk indexes to be decoded  
+*chunks*: Map containing chunk indices mapped to object chunk required to retrieve lost chunk.   
 
-Building Ceph
-=============
+####Output Parameters:####  
+*repaired*: Map containing chunk indices mapped to repaired data.  
 
-Note that these instructions are meant for developers who are
-compiling the code for development and testing.  To build binaries
-suitable for installation we recommend you build deb or rpm packages,
-or refer to the ceph.spec.in or debian/rules to see which
-configuration options are specified for production builds.
+Repairs chunk of lost object using CLMSR algorithm. Returns 0 if repair is successful, 1 otherwise.
 
-Prerequisite: CMake 2.8.11
 
-Build instructions:
 
-	./do_cmake.sh
-	cd build
-	make
+##New functions Added to ObjectStore
 
-This assumes you make your build dir a subdirectory of the ceph.git
-checkout. If you put it elsewhere, just replace .. above with a
-correct path to the checkout.
 
-To build only certain targets use:
+###int read(const coll_t& _cid, const ghobject_t& lost_oid, uint64_t offset, size_t len, ceph::bufferlist& bl, uint64_t chunk_size, int sub_chunk_cnt, map<int,int> &repair_sub_chunks_ind, uint32_t op_flags, bool allow_eio)###  
 
-        make [target name]
+####Input parameters:####
+*_cid*: Collection index/object chunk index   
+*lost_oid* : lost object index  
+*offset*: offset   
+*size_t len*: length of data to be read  
+*chunk_size*: chunk size  
+*sub_chunk_cnt*: sub chunk count   
+*repair_sub_chunks_ind*: Map containing indices mapped to repair plane indices.  
+*op_flags*:   
+*allow_eio*:  
+####Output Parameters:####
+*bl*: bufferlist to be populated with data read
+Populates bufferlist with chunk of data of length len corresponding to lost object. Returns size of data read if reading was successful else returns -1.
 
-To install:
 
-        make install
- 
-CMake Options
--------------
+##New functions Added to FileStore (To read Subchunks)
+###void group_repair_nodes_ind(map<int,int> &repair_sub_chunks_ind, set<pair<int,int> > &repair_node_grps)###  
+####Input Parameters:####  
 
-If you run the `cmake` command by hand, there are many options you can
-set with "-D". For example the option to build the RADOS Gateway is
-defaulted to ON. To build without the RADOS Gateway:
+*repair_sub_chunks_ind*: Map containing indices mapped to repair plane indices.  
 
-        cmake -DWITH_RADOSGW=OFF [path to top level ceph directory]
+####Output Parameters:####  
 
-Another example below is building with debugging and alternate locations 
-for a couple of external dependencies:
+*repair_node_grps*: Set of pairs to be populated with groups of sub chunks to be read.  
 
-        cmake -DLEVELDB_PREFIX="/opt/hyperleveldb" -DOFED_PREFIX="/opt/ofed" \
-        -DCMAKE_INSTALL_PREFIX=/opt/accelio -DCMAKE_C_FLAGS="-O0 -g3 -gdwarf-4" \
-        ..
+Groups consecutive sub chunks into one group to speed up read. Each pair consists of start sub chunk id and end sub chunk id. Returns nothing.
 
-To view an exhaustive list of -D options, you can invoke `cmake` with:
-
-        cmake -LH
-
-If you often pipe `make` to `less` and would like to maintain the
-diagnostic colors for errors and warnings (and if your compiler
-supports it), you can invoke `cmake` with:
-
-        cmake -DDIAGNOSTICS_COLOR=always ..
-
-Then you'll get the diagnostic colors when you execute:
-
-        make | less -R
-
-Other available values for 'DIAGNOSTICS_COLOR' are 'auto' (default) and
-'never'.
-
-
-Building a source tarball
-=========================
-
-To build a complete source tarball with everything needed to build from
-source and/or build a (deb or rpm) package, run
-
-	./make-dist
-
-This will create a tarball like ceph-$version.tar.bz2 from git.
-(Ensure that any changes you want to include in your working directory
-are committed to git.)
-
-
-Running a test cluster
-======================
-
-To run a functional test cluster,
-
-	cd build
-	make vstart        # builds just enough to run vstart
-	../src/vstart.sh -d -n -x -l
-	./bin/ceph -s
-
-Almost all of the usual commands are available in the bin/ directory.
-For example,
-
-	./bin/rados -p rbd bench 30 write
-	./bin/rbd create foo --size 1000
-
-To shut down the test cluster,
-
-	../src/stop.sh
-
-To start or stop individual daemons, the sysvinit script can be used:
-
-	./bin/init-ceph restart osd.0
-	./bin/init-ceph stop
-
-
-Running unit tests
-==================
-
-To build and run all tests (in parallel using all processors), use `ctest`:
-
-	cd build
-	make
-	ctest -j$(nproc)
-
-(Note: Many targets built from src/test are not run using `ctest`.
-Targets starting with "unittest" are run in `make check` and thus can
-be run with `ctest`. Targets starting with "ceph_test" can not, and should
-be run by hand.)
-
-When failures occur, look in build/Testing/Temporary for logs.
-
-To build and run all tests and their dependencies without other
-unnecessary targets in Ceph:
-
-        cd build
-        make check -j$(nproc)
-
-To run an individual test manually, run `ctest` with -R (regex matching):
-
-	ctest -R [regex matching test name(s)]
-
-(Note: `ctest` does not build the test it's running or the dependencies needed
-to run it)
-
-To run an individual test manually and see all the tests output, run
-`ctest` with the -V (verbose) flag:
-
-	ctest -V -R [regex matching test name(s)]
-
-To run an tests manually and run the jobs in parallel, run `ctest` with 
-the -j flag:
-
-	ctest -j [number of jobs]
-
-There are many other flags you can give `ctest` for better control
-over manual test execution. To view these options run:
-
-	man ctest
-
-
-Building the Documentation
-==========================
-
-Prerequisites
--------------
-
-The list of package dependencies for building the documentation can be
-found in doc_deps.deb.txt:
-
-	sudo apt-get install `cat doc_deps.deb.txt`
-
-Building the Documentation
---------------------------
-
-To build the documentation, ensure that you are in the top-level
-`/ceph directory, and execute the build script. For example:
-
-	admin/build-doc
 
