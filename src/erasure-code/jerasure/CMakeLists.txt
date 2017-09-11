@@ -90,7 +90,7 @@ set(ec_jerasure_objs
 add_library(ec_jerasure SHARED ${ec_jerasure_objs})
 set_target_properties(ec_jerasure PROPERTIES
   INSTALL_RPATH "")
-target_link_libraries(ec_jerasure ${EXTRALIBS})
+target_link_libraries(ec_jerasure json_spirit ${EXTRALIBS})
 install(TARGETS ec_jerasure DESTINATION ${erasure_plugin_dir})
 
 # legacy libraries

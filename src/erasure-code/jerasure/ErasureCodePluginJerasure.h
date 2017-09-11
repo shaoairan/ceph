@@ -19,6 +19,7 @@
 #define CEPH_ERASURE_CODE_PLUGIN_JERASURE_H
 
 #include "erasure-code/ErasureCodePlugin.h"
+#include "include/assert.h"
 
 class ErasureCodePluginJerasure : public ErasureCodePlugin {
 public:

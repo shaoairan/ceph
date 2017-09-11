@@ -18,10 +18,33 @@
 #ifndef CEPH_ERASURE_CODE_JERASURE_H
 #define CEPH_ERASURE_CODE_JERASURE_H
 
+#include "include/err.h"
+#include "json_spirit/json_spirit.h"
 #include "erasure-code/ErasureCode.h"
 
 #define DEFAULT_RULESET_ROOT "default"
 #define DEFAULT_RULESET_FAILURE_DOMAIN "host"
+#define ERROR_LRC_ARRAY                 -(MAX_ERRNO + 1)
+#define ERROR_LRC_OBJECT                -(MAX_ERRNO + 2)
+#define ERROR_LRC_INT                   -(MAX_ERRNO + 3)
+#define ERROR_LRC_STR                   -(MAX_ERRNO + 4)
+#define ERROR_LRC_PLUGIN                -(MAX_ERRNO + 5)
+#define ERROR_LRC_DESCRIPTION           -(MAX_ERRNO + 6)
+#define ERROR_LRC_PARSE_JSON            -(MAX_ERRNO + 7)
+#define ERROR_LRC_MAPPING               -(MAX_ERRNO + 8)
+#define ERROR_LRC_MAPPING_SIZE          -(MAX_ERRNO + 9)
+#define ERROR_LRC_FIRST_MAPPING         -(MAX_ERRNO + 10)
+#define ERROR_LRC_COUNT_CONSTRAINT      -(MAX_ERRNO + 11)
+#define ERROR_LRC_CONFIG_OPTIONS        -(MAX_ERRNO + 12)
+#define ERROR_LRC_LAYERS_COUNT          -(MAX_ERRNO + 13)
+#define ERROR_LRC_RULESET_OP            -(MAX_ERRNO + 14)
+#define ERROR_LRC_RULESET_TYPE          -(MAX_ERRNO + 15)
+#define ERROR_LRC_RULESET_N             -(MAX_ERRNO + 16)
+#define ERROR_LRC_ALL_OR_NOTHING        -(MAX_ERRNO + 17)
+#define ERROR_LRC_GENERATED             -(MAX_ERRNO + 18)
+#define ERROR_LRC_K_M_MODULO            -(MAX_ERRNO + 19)
+#define ERROR_LRC_K_MODULO              -(MAX_ERRNO + 20)
+#define ERROR_LRC_M_MODULO              -(MAX_ERRNO + 21)
 
 typedef enum mds_block{
   VANDERMONDE_RS=0,
@@ -309,6 +332,18 @@ public:
   char** B_buf;//need to be super careful on how this is used
   //we might have to add mutexes eventually while using this buffer.
 
+
+  struct Step {
+    Step(string _op, string _type, int _n) :
+      op(_op),
+      type(_type),
+      n(_n) {}
+    string op;
+    string type;
+    int n;
+  };
+  vector<Step> ruleset_steps;
+
   ErasureCodeJerasureCLMSR() :
     ErasureCodeJerasure("cl_msr"),
     matrix(0),
@@ -332,10 +367,15 @@ public:
       free(B_buf);
     }
   }
+
+  int create_ruleset(const string &name,
+                             CrushWrapper &crush,
+                             ostream *ss) const override;
+
   virtual int minimum_to_decode2(const set<int> &want_to_read,
                                    const set<int> &available_chunks,
                                    map<int, list<pair<int, int>>> *minimum);
- virtual int decode2(const set<int> &want_to_read,
+  virtual int decode2(const set<int> &want_to_read,
                 const map<int, bufferlist> &chunks,
                 map<int, bufferlist> *decoded, int chunk_size);
 
@@ -368,7 +408,11 @@ public:
   virtual void prepare();
 private:
   virtual int parse(ErasureCodeProfile &profile, ostream *ss);
-  void group_repair_subchunks(map<int,int> &repair_subchunks, list<pair<int,int> > &grouped_subchunks);
+  int parse_ruleset(ErasureCodeProfile &profile, ostream *ss);
+  int parse_ruleset_step(string description_string,
+                         json_spirit::mArray description,
+                         ostream *ss);
+ void group_repair_subchunks(map<int,int> &repair_subchunks, list<pair<int,int> > &grouped_subchunks);
   int encode_systematic(char** data_ptrs, char** code_ptrs, int size);
   int decode_layered(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size);
   int repair_lost_chunks(map<int,char*> &repaired_data, set<int> &aloof_nodes,
