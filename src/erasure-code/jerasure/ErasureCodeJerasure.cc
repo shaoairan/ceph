@@ -826,6 +826,14 @@ int ErasureCodeJerasureCLMSR::parse(ErasureCodeProfile &profile,
   err |= to_bool("jerasure-per-chunk-alignment", profile,
 		 &per_chunk_alignment, "false", ss);
 
+  /*if (profile.find("ruleset-failure-domain") != profile.end())
+    ruleset_failure_domain = profile.find("ruleset-failure-domain")->second;*/
+
+  if (ruleset_failure_domain != "") {
+    ruleset_steps.clear();
+    ruleset_steps.push_back(Step("chooseleaf", ruleset_failure_domain, 0));
+  }
+
   err |= parse_ruleset(profile, ss);
   return err;
 }
@@ -872,6 +880,7 @@ int ErasureCodeJerasureCLMSR::minimum_to_decode2(const set<int> &want_to_read,
   set<int> minimum_shard_ids;
 
   if(is_repair(want_to_read, available)) {
+    dout(10) << __func__ << "is_repair is true " << dendl;
     int r = minimum_to_repair(want_to_read, available, &minimum_shard_ids);
     map<int, int> repair_subchunks;
     get_repair_subchunks(want_to_read, minimum_shard_ids,
@@ -886,6 +895,7 @@ int ErasureCodeJerasureCLMSR::minimum_to_decode2(const set<int> &want_to_read,
     }
     return r;
   } else {
+    dout(10) << __func__ << " is_repair is false"<<dendl;
     return ErasureCode::minimum_to_decode2(want_to_read, available, minimum);
   }
 }
@@ -904,10 +914,8 @@ int ErasureCodeJerasureCLMSR::decode2(const set<int> &want_to_read,
   } else {
     return ErasureCode::decode(want_to_read, chunks, decoded);
   }
-
-
-
 }
+
 int ErasureCodeJerasureCLMSR::minimum_to_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks,
                                    set<int> *minimum)
@@ -916,7 +924,69 @@ int ErasureCodeJerasureCLMSR::minimum_to_repair(const set<int> &want_to_read,
   int rep_node_index = 0;
 
 
-  if((available_chunks.size() >= (unsigned)d) ){//&& (want_to_read.size() <= (unsigned)k+m-d) ){
+  if((available_chunks.size() >= (unsigned)d)){//&& (want_to_read.size() <= (unsigned)k+m-d) ){
+
+    for(set<int>::iterator i=want_to_read.begin();
+        i != want_to_read.end(); ++i){
+        lost_node_index = (*i < k) ? (*i) : (*i+nu);
+      for(int j = 0; j < q; j++){  
+        if(j != lost_node_index%q) {
+           rep_node_index = (lost_node_index/q)*q+j;//add all the nodes in lost node's y column.
+           if(rep_node_index < k){
+             if(want_to_read.find(rep_node_index) == want_to_read.end())minimum->insert(rep_node_index);
+           }
+           else if(rep_node_index >= k+nu){
+             if(want_to_read.find(rep_node_index-nu) == want_to_read.end())minimum->insert(rep_node_index-nu);
+           }
+        }
+      }
+    }
+    if (includes(
+        available_chunks.begin(), available_chunks.end(), minimum->begin(), minimum->end())) {
+      for(set<int>::iterator i = available_chunks.begin();
+          i != available_chunks.end(); ++i){
+        if(minimum->size() < (unsigned)d){
+          if(minimum->find(*i) == minimum->end())minimum->insert(*i);
+        } else break;
+      }
+    } else {
+      dout(0) << "minimum_to_repair: shouldn't have come here" << dendl;
+      assert(0);
+    }
+
+  } else{
+    if( d == k+m-1){
+     assert(available_chunks.size() + want_to_read.size() == (unsigned)k+m);
+     lost_node_index = *(want_to_read.begin());// < k) ? (*(want_to_read.begin.())): (*(want_to_read.begin())+nu);
+     lost_node_index = (lost_node_index < k) ? lost_node_index : lost_node_index+nu;
+     int y_0 = lost_node_index/q; 
+     for(set<int>::iterator i=want_to_read.begin();
+        i != want_to_read.end(); ++i){
+        lost_node_index =  (*i < k) ? (*i) : (*i+nu); 
+        assert(lost_node_index/q == y_0);
+     }
+     dout(10) << __func__ << " picking all the availbale chunks " << dendl;
+     *minimum = available_chunks;
+     return 0;
+    } else{
+      dout(0) << "available_chunks: " << available_chunks << " want_to_read:" <<  want_to_read << dendl;
+      assert(0);
+    }
+    //return -EIO;
+  }
+  assert(minimum->size() == (unsigned)d);
+  return 0;
+}
+
+/*int ErasureCodeJerasureCLMSR::minimum_to_repair(const set<int> &want_to_read,
+                                   const set<int> &available_chunks,
+                                   set<int> *minimum)
+{
+  int lost_node_index = 0;
+  int rep_node_index = 0;
+
+
+
 
     for(set<int>::iterator i=want_to_read.begin();
         i != want_to_read.end(); ++i){
@@ -954,7 +1024,7 @@ int ErasureCodeJerasureCLMSR::minimum_to_repair(const set<int> &want_to_read,
   assert(minimum->size() == (unsigned)d);
 
   return 0;
-}
+}*/
 
 //this will be called by ECBackend when a helper node needs to know what subchunks to read,
 //the result will be sent as input to filestore read.
@@ -1020,6 +1090,55 @@ int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
         available_chunks.begin(), available_chunks.end(), want_to_read.begin(), want_to_read.end()) ) return 0;
 
   if((d-1)*get_repair_sub_chunk_count(want_to_read) >= (k-1)*sub_chunk_no) return 0;
+
+  //for d=n-1 will be able to handle erasures when all the non erased symbols are available
+  //and when the erasures are within a y-crossection.
+  if((d < k+m-1) && (available_chunks.size() < (unsigned)d)) return 0;
+  if(d == k+m-1){
+    if(available_chunks.size() + want_to_read.size() < (unsigned)k+m ) return 0;
+    else if( want_to_read.size() > (unsigned)m) return 0;
+    //else return 1;
+  }
+  
+  //in every plane the number of erasures in B can't exceed m
+  int erasures_weight_vector[t];
+  int min_y = q+1;
+  memset(erasures_weight_vector, 0, t*sizeof(int));
+
+  for(set<int>::iterator i=want_to_read.begin();
+      i != want_to_read.end(); ++i){
+    int lost_node_id = (*i < k) ? *i: *i+nu;
+    erasures_weight_vector[lost_node_id/q]++;
+    for(int x=0; x < q; x++){
+      int node = (lost_node_id/q)*q+x;
+      node = (node < k) ? node : node-nu;
+      if(want_to_read.find(node) == want_to_read.end()){//node from same group not erased
+        if(available_chunks.find(node) == available_chunks.end()) return 0;//node from same group not available as well
+      }
+    }
+  }
+  for(int y = 0; y < t; y++){
+    if((erasures_weight_vector[y] > 0) && (erasures_weight_vector[y] < min_y)) min_y = erasures_weight_vector[y];
+  }
+  assert((min_y > 0) && (min_y != (q+1) ));
+  /*if(d == k+m-1){
+    if(hw_erasures == 1){
+      dout(10) << __func__<< "repairing erasures within y-cross for the case of d=n-1"<<dendl;
+      return 1; 
+    } else return 0;
+  }*/
+  if((q+(int)want_to_read.size()-min_y) <= m) return 1;
+  return 0;
+}
+
+/*int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
+                                   const set<int> &available_chunks){
+
+  //dout(10)<<__func__<< "want_to_read:" << want_to_read<<"available"<<available_chunks<<dendl;
+  if(includes(
+        available_chunks.begin(), available_chunks.end(), want_to_read.begin(), want_to_read.end()) ) return 0;
+
+  if((d-1)*get_repair_sub_chunk_count(want_to_read) >= (k-1)*sub_chunk_no) return 0;
   if(available_chunks.size() < (unsigned)d) return 0;
   //else if(want_to_read.size() > (unsigned) (k+m-d))return 0;
   //in every plane the number of erasures in B can't exceed m
@@ -1048,6 +1167,7 @@ int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
   if((q+(int)want_to_read.size()-min_y) <= m) return 1;
   return 0;
 }
+*/
 
 int ErasureCodeJerasureCLMSR::get_repair_sub_chunk_count(const set<int> &want_to_read)
 {
@@ -1073,10 +1193,16 @@ int ErasureCodeJerasureCLMSR::repair(const set<int> &want_to_read,
                         const map<int, bufferlist> &chunks,
                         map<int, bufferlist> *repaired)
 {
-  if( ( chunks.size() != (unsigned)d ) || ( want_to_read.size() > (unsigned)k+m-d ) ){
-    dout(0) << __func__ << "chunk size not sufficient for repair"<< dendl;
-    assert(0);
-    return -EIO;
+  //dout(10) << __func__ << " want_to_read: " << want_to_read.size() << " chunk size: "<< chunks.size() << dendl;
+  //dout(10) << __func__ << " want_to_read " << want_to_read << " hlper chunks: "<< chunks << dendl;
+  if(d< k+m-1) {
+    if((chunks.size() != (unsigned)d) || (want_to_read.size() > (unsigned)k+m-d)){
+      dout(0) << __func__ << "chunk size not sufficient for repair"<< dendl;
+      assert(0);
+      return -EIO;
+    }
+  } else{
+    assert(want_to_read.size()+chunks.size() == (unsigned)k+m);
   }
 
   int repair_sub_chunk_no = get_repair_sub_chunk_count(want_to_read);

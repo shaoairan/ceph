@@ -355,6 +355,7 @@ public:
     DEFAULT_K = "6";
     DEFAULT_M = "3";
     DEFAULT_W = "8";
+    ruleset_steps.push_back(Step("chooseleaf", "host", 0));
   }
 
   virtual ~ErasureCodeJerasureCLMSR() {

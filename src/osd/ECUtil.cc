@@ -73,12 +73,14 @@ int ECUtil::decode(
   }
 
   set<int> avail;
+  unsigned int buf_length = to_decode.begin()->second.length();
   for (map<int, bufferlist>::iterator i = to_decode.begin();
        i != to_decode.end();
        ++i) {
-    assert(i->second.length() != 0);
+    assert(i->second.length() == buf_length);
     avail.insert(i->first);
   }
+  if(buf_length == 0) return 0;
 
   map<int, list<pair<int,int>>> min;
   assert(ec_impl->minimum_to_decode2(need, avail, &min) == 0);
