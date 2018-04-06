@@ -81,14 +81,15 @@ int ErasureCodeClay::init(ErasureCodeProfile &profile,
 
 unsigned int ErasureCodeClay::get_chunk_size(unsigned int object_size) const
 {
-  unsigned alignment = get_alignment();
-  unsigned tail = object_size % alignment;
-  unsigned padded_length = object_size + ( tail ?  ( alignment - tail ) : 0 );
+  //unsigned alignment = get_alignment();
+  //unsigned tail = object_size % alignment;
+  //unsigned padded_length = object_size + ( tail ?  ( alignment - tail ) : 0 );
   
-  dout(10) << __func__ << " stripe size:"<<object_size<<" alignment:"<<alignment<<" padded_length:"<<padded_length<<dendl;
-  assert(padded_length % (k*sub_chunk_no) == 0);
-  dout(10) << __func__ << " chunk_size:"<<padded_length/k<<" subchunk size:"<<padded_length/(k*sub_chunk_no)<<dendl;
-  return padded_length/k;
+  //dout(10) << __func__ << " stripe size:"<<object_size<<" alignment:"<<alignment<<" padded_length:"<<padded_length<<dendl;
+  //assert(padded_length % (k*sub_chunk_no) == 0);
+  //dout(10) << __func__ << " chunk_size:"<<padded_length/k<<" subchunk size:"<<padded_length/(k*sub_chunk_no)<<dendl;
+  dout(10) << _func__ << " object_size:" << object_size << " k:" << k << dendl;
+  return object_size/k;
 }
 
 int ErasureCodeClay::minimum_to_decode(const set<int> &want_to_read,
@@ -119,7 +120,8 @@ int ErasureCodeClay::minimum_to_decode(const set<int> &want_to_read,
 
 int ErasureCodeClay::decode(const set<int> &want_to_read,
                 const map<int, bufferlist> &chunks,
-                map<int, bufferlist> *decoded, int chunk_size){
+                map<int, bufferlist> *decoded, int chunk_size)
+{
   set<int> avail;
   for (map<int, bufferlist>::const_iterator i = chunks.begin();
       i != chunks.end(); ++i) {
@@ -147,12 +149,12 @@ int ErasureCodeClay::encode_chunks(const set<int> &want_to_encode,
       chunks[i] = (*encoded)[i];
     } else {
       chunks[i+nu] = (*encoded)[i];
-	  parity_chunks.insert(i+nu);
+      parity_chunks.insert(i+nu);
     }
   }
   
   for (int i = k; i < k+nu; i++) {
-	bufferptr buf(buffer::create_aligned(chunk_size, SIMD_ALIGN));
+    bufferptr buf(buffer::create_aligned(chunk_size, SIMD_ALIGN));
     buf.zero();
     chunks[i].push_back(std::move(buf));  
   }
@@ -173,20 +175,20 @@ int ErasureCodeClay::decode_chunks(const set<int> &want_to_read,
   map<int, bufferlist> coded_chunks;
   
   for (int i = 0; i < k + m; i++) {
-	if (want_to_read.find(i) != want_to_read.end()) {
+    if (want_to_read.find(i) != want_to_read.end()) {
       erasures.insert(i < k ? i : i+nu);
-	}
-	if (chunks.find(i) == chunks.end()) {
-	  assert((*decoded).find(i) != (*decoded).end());
-	  coded_chunks[i < k ? i : i+nu] = (*decoded)[i];
-	} else {
+    }
+    if (chunks.find(i) == chunks.end()) {
+      assert((*decoded).find(i) != (*decoded).end());
+      coded_chunks[i < k ? i : i+nu] = (*decoded)[i];
+    } else {
       coded_chunks[i < k ? i : i+nu] = (chunks.find(i))->second;
-	}
+    }
   }
   int chunk_size = coded_chunks[0].length();
   
   for (int i = k; i < k+nu; i++) {
-	bufferptr buf(buffer::create_aligned(chunk_size, SIMD_ALIGN));
+    bufferptr buf(buffer::create_aligned(chunk_size, SIMD_ALIGN));
     buf.zero();
     coded_chunks[i].push_back(std::move(buf));  
   }
@@ -194,27 +196,26 @@ int ErasureCodeClay::decode_chunks(const set<int> &want_to_read,
   int res = decode_layered(erasures, &coded_chunks);
   for (int i = k; i < k+nu; i++) {
     coded_chunks[i].clear();  
-  }
-	
+  }	
   return res;
 }
 
 unsigned int ErasureCodeClay::get_alignment() const
 {
-	unsigned alignment = k*sub_chunk_no*w*sizeof(int);
-    if ((w*sizeof(int))%LARGEST_VECTOR_WORDSIZE)
-      alignment = k*sub_chunk_no*w*LARGEST_VECTOR_WORDSIZE;
-    return alignment;
+  unsigned alignment = k*sub_chunk_no*w*sizeof(int);
+  if ((w*sizeof(int))%LARGEST_VECTOR_WORDSIZE)
+    alignment = k*sub_chunk_no*w*LARGEST_VECTOR_WORDSIZE;
+  return alignment;
 }
 
 int ErasureCodeClay::parse(ErasureCodeProfile &profile,
 			  ostream *ss)
 {
- int err = 0;
+  int err = 0;
   err = ErasureCode::parse(profile, ss);
   err |= to_int("k", profile, &k, DEFAULT_K, ss);
   err |= to_int("m", profile, &m, DEFAULT_M, ss);
-  err |= to_int("m", profile, &m, DEFAULT_W, ss);
+  err |= to_int("w", profile, &w, DEFAULT_W, ss);
   
   err |= sanity_check_k(k, ss);
 
@@ -224,16 +225,19 @@ int ErasureCodeClay::parse(ErasureCodeProfile &profile,
   if (profile.find("scalar_mds") == profile.end() ||
       profile.find("scalar_mds")->second.size() == 0) {
     mds.profile["plugin"] = "jerasure";
-	pft.profile["plugin"] = "jerasure";
+    pft.profile["plugin"] = "jerasure";
     *ss << "scalar_mds not found in profile picking default jerasure" << std::endl;
   } else {
     std::string p = profile.find("scalar_mds")->second;
     *ss << "recieved scalar_mds as " << p << std::endl;
 
-    if ((p == "jerasure") || (p == "isal")) mds.profile["plugin"] = p;
+    if ((p == "jerasure") || (p == "isal")) {
+      mds.profile["plugin"] = p;
+      pft.profile["plugin"] = p;
+    }
     else {
       mds.profile["plugin"] = "jerasure";
-	  pft.profile["plugin"] = "jerasure";
+      pft.profile["plugin"] = "jerasure";
       *ss << "scalar_mds " << p << "is not currently supported using the default reed_sol_van" << std::endl;
     }
   }
@@ -241,13 +245,13 @@ int ErasureCodeClay::parse(ErasureCodeProfile &profile,
   if (profile.find("technique") == profile.end() ||
       profile.find("technique")->second.size() == 0) {
     mds.profile["technique"] = "reed_sol_van";
-	pft.profile["technique"] = "reed_sol_van";
+    pft.profile["technique"] = "reed_sol_van";
     *ss << "technique not found in profile picking default reed_sol_van" << std::endl;
   } else {
     std::string p = profile.find("technique")->second;
     *ss << "recieved technique as " << p << std::endl;
     mds.profile["technique"] = p;
-	pft.profile["technique"] = p;
+    pft.profile["technique"] = p;
   }
   
   if ((d < k) || (d > k+m-1)) {
@@ -268,7 +272,7 @@ int ErasureCodeClay::parse(ErasureCodeProfile &profile,
 
   if (k+m+nu > 254) {
     err = -EINVAL;
-	return err;
+    return err;
   }
   
   mds.profile["k"] = std::to_string(k+nu);
@@ -279,7 +283,7 @@ int ErasureCodeClay::parse(ErasureCodeProfile &profile,
   pft.profile["m"] = '2';
   pft.profile["w"] = '8';
   
-    //dout(10) << __func__ << " k:" << k << " m: " << m << " w:" << w << dendl;
+  dout(10) << __func__ << " k:" << k << " m: " << m << " w:" << w << dendl;
     
   t = (k+m+nu)/q;
   sub_chunk_no = pow_int(q, t); 
@@ -365,11 +369,11 @@ int ErasureCodeClay::minimum_to_repair(const set<int> &want_to_read,
           rep_node_index = (lost_node_index/q)*q+j;//add all the nodes in lost node's y column.
           if (rep_node_index < k) {
             if (want_to_read.find(rep_node_index) == want_to_read.end()) 
-		      minimum->insert(rep_node_index);
+              minimum->insert(rep_node_index);
           }
           else if (rep_node_index >= k+nu) {
-            if (want_to_read.find(rep_node_index-nu) == want_to_read.end()) 
-		      minimum->insert(rep_node_index-nu);
+            if (want_to_read.find(rep_node_index-nu) == want_to_read.end())
+              minimum->insert(rep_node_index-nu);
           }
         }
       }
@@ -436,7 +440,8 @@ void ErasureCodeClay::get_repair_subchunks(const set<int> &to_repair,
   }
 }
 
-void ErasureCodeClay::group_repair_subchunks(map<int,int> &repair_subchunks, vector<pair<int,int> > &grouped_subchunks) {
+void ErasureCodeClay::group_repair_subchunks(map<int,int> &repair_subchunks, vector<pair<int,int> > &grouped_subchunks)
+{
   set<int> temp;
   for (map<int,int>::iterator r = repair_subchunks.begin(); r!= repair_subchunks.end();r++) {
     temp.insert(r->second);
@@ -523,7 +528,7 @@ int ErasureCodeClay::repair(const set<int> &want_to_read,
         aloof_nodes.insert(aloof_node_id);
       } else {
         bufferptr ptr(buffer::create_aligned(chunksize, SIMD_ALIGN)); 
-		ptr.zero();
+	ptr.zero();
         int lost_node_id = (i < k) ? i : i+nu;
         (*repaired)[i].push_front(ptr);
         recovered_data[lost_node_id] = (*repaired)[i];
@@ -533,8 +538,8 @@ int ErasureCodeClay::repair(const set<int> &want_to_read,
 
   //this is for shortened codes i.e., when nu > 0
   for (int i=k; i < k+nu; i++) {
-	bufferptr ptr(buffer::create_aligned(repair_blocksize, SIMD_ALIGN)); 
-	ptr.zero();
+    bufferptr ptr(buffer::create_aligned(repair_blocksize, SIMD_ALIGN)); 
+    ptr.zero();
     helper_data[i].push_front(ptr);
   }
 
@@ -584,10 +589,10 @@ int ErasureCodeClay::repair_lost_chunks(map<int, bufferlist> &recovered_data, se
   
   for (int i = 0; i < q*t; i++) {
     if (U_buf[i].length() == 0) {
-	  bufferptr buf(buffer::create_aligned(sub_chunk_no*sub_chunksize, SIMD_ALIGN));
-	  buf.zero();
-	  U_buf[i].push_back(std::move(buf));  
-	}
+      bufferptr buf(buffer::create_aligned(sub_chunk_no*sub_chunksize, SIMD_ALIGN));
+      buf.zero();
+      U_buf[i].push_back(std::move(buf));  
+    }
   }
 
   //repair planes in order
@@ -605,9 +610,9 @@ int ErasureCodeClay::repair_lost_chunks(map<int, bufferlist> &recovered_data, se
         for(y=0; y < t; y++){
           for (x = 0; x < q; x++) {
             node_xy = y*q + x;
-			map<int, bufferlist> known_subchunks;
-			map<int, bufferlist> unknown_subchunks;
-			set<int> pft_erasures;
+            map<int, bufferlist> known_subchunks;
+            map<int, bufferlist> unknown_subchunks;
+            set<int> pft_erasures;
 			
             if ((recovered_data.find(node_xy) != recovered_data.end()) ||
                 (aloof_nodes.find(node_xy) != aloof_nodes.end()))
@@ -619,28 +624,28 @@ int ErasureCodeClay::repair_lost_chunks(map<int, bufferlist> &recovered_data, se
               //so A1 is available, need to check if A2 is available.
               //A1 = &helper_data[node_xy][repair_plane_to_ind[*z]*sub_chunksize];
 
-	          z_sw = (*z) + (x - z_vec[y])*pow_int(q,t-1-y);
+	      z_sw = (*z) + (x - z_vec[y])*pow_int(q,t-1-y);
               node_sw = y*q + z_vec[y];
               //dout(10) << "current node=" << node_xy << " plane="<< *z << " node_sw=" << node_sw << " plane_sw="<< z_sw << dendl;
               //consider this as an erasure, if A2 not found.
               if (repair_plane_to_ind.find(z_sw) == repair_plane_to_ind.end())
               {
-				erasures.insert(node_xy);
+                erasures.insert(node_xy);
                 //dout(10)<< num_erased<< "'th erasure of node " << node_xy << " = (" << x << "," << y << ")" << dendl;
               } else {
-                if(recovered_data.find(node_sw) != recovered_data.end()){
+                if (recovered_data.find(node_sw) != recovered_data.end()) {
                   assert(z_sw < sub_chunk_no);
-				  pft_erasures.insert(2);
-				  known_subchunks[0].substr_of(helper_data[node_xy], repair_plane_to_ind[*z]*sub_chunksize, sub_chunksize);
-				  known_subchunks[1].substr_of(recovered_data[node_sw], z_sw*sub_chunksize, sub_chunksize);
-				  unknown_subchunks[2].substr_of(U_buf[node_xy], (*z)*sub_chunksize, sub_chunksize);
-				  pft.erasure_code->decode_chunks(pft_erasures, known_subchunks, &unknown_subchunks);
-                } else if(aloof_nodes.find(node_sw) != aloof_nodes.end()){
-				  pft_erasures.insert(2);
-				  known_subchunks[0].substr_of(helper_data[node_xy], repair_plane_to_ind[*z]*sub_chunksize, sub_chunksize);
-				  known_subchunks[3].substr_of(U_buf[node_sw], z_sw*sub_chunksize, sub_chunksize);
-				  unknown_subchunks[2].substr_of(U_buf[node_xy], (*z)*sub_chunksize, sub_chunksize);
-				  pft.erasure_code->decode_chunks(pft_erasures, known_subchunks, &unknown_subchunks);
+		  pft_erasures.insert(2);
+		  known_subchunks[0].substr_of(helper_data[node_xy], repair_plane_to_ind[*z]*sub_chunksize, sub_chunksize);
+		  known_subchunks[1].substr_of(recovered_data[node_sw], z_sw*sub_chunksize, sub_chunksize);
+		  unknown_subchunks[2].substr_of(U_buf[node_xy], (*z)*sub_chunksize, sub_chunksize);
+		  pft.erasure_code->decode_chunks(pft_erasures, known_subchunks, &unknown_subchunks);
+                } else if (aloof_nodes.find(node_sw) != aloof_nodes.end()) {
+		  pft_erasures.insert(2);
+		  known_subchunks[0].substr_of(helper_data[node_xy], repair_plane_to_ind[*z]*sub_chunksize, sub_chunksize);
+		  known_subchunks[3].substr_of(U_buf[node_sw], z_sw*sub_chunksize, sub_chunksize);
+		  unknown_subchunks[2].substr_of(U_buf[node_xy], (*z)*sub_chunksize, sub_chunksize);
+		  pft.erasure_code->decode_chunks(pft_erasures, known_subchunks, &unknown_subchunks);
                   //B2 = &B_buf[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize];
                   //get_B1_fromA1B2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, B2, sub_chunksize);
                 } else {
@@ -648,17 +653,17 @@ int ErasureCodeClay::repair_lost_chunks(map<int, bufferlist> &recovered_data, se
                   //dout(10) << "obtaining B1 from A1 A2 for node: " << node_xy << " on plane:" << *z << dendl;
                   //A2 = &helper_data[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize];
                   if( z_vec[y] != x){
-				    pft_erasures.insert(2);
-				    known_subchunks[0].substr_of(helper_data[node_xy], repair_plane_to_ind[*z]*sub_chunksize, sub_chunksize);
-				    known_subchunks[1].substr_of(helper_data[node_sw], repair_plane_to_ind[z_sw]*sub_chunksize, sub_chunksize);
-				    unknown_subchunks[2].substr_of(U_buf[node_xy], (*z)*sub_chunksize, sub_chunksize);  
-				    pft.erasure_code->decode_chunks(pft_erasures, known_subchunks, &unknown_subchunks);
+		    pft_erasures.insert(2);
+		    known_subchunks[0].substr_of(helper_data[node_xy], repair_plane_to_ind[*z]*sub_chunksize, sub_chunksize);
+		    known_subchunks[1].substr_of(helper_data[node_sw], repair_plane_to_ind[z_sw]*sub_chunksize, sub_chunksize);
+		    unknown_subchunks[2].substr_of(U_buf[node_xy], (*z)*sub_chunksize, sub_chunksize);  
+		    pft.erasure_code->decode_chunks(pft_erasures, known_subchunks, &unknown_subchunks);
                     //get_B1_fromA1A2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, A2, sub_chunksize);
                   } else {
-					char* uncoupled_chunk = U_buf[node_xy].c_str();
-					char* coupled_chunk = helper_data[node_xy].c_str();
-					memcpy(&uncoupled_chunk[repair_plane_to_ind[*z]*sub_chunksize], &coupled_chunk[repair_plane_to_ind[*z]*sub_chunksize], sub_chunksize);
-				  }
+		    char* uncoupled_chunk = U_buf[node_xy].c_str();
+		    char* coupled_chunk = helper_data[node_xy].c_str();
+		    memcpy(&uncoupled_chunk[repair_plane_to_ind[*z]*sub_chunksize], &coupled_chunk[repair_plane_to_ind[*z]*sub_chunksize], sub_chunksize);
+		  }
                 }
               }
             }
@@ -669,8 +674,8 @@ int ErasureCodeClay::repair_lost_chunks(map<int, bufferlist> &recovered_data, se
         //dout(10) << "going to decode for B's in repair plane "<< *z << " at index " << repair_plane_to_ind[*z] << dendl;
         decode_uncoupled(erasures, *z, sub_chunksize);
 		
-    for (set<int>::iterator i = erasures.begin(); 
-	       i != erasures.end();	++i) {
+        for (set<int>::iterator i = erasures.begin(); 
+	            i != erasures.end(); ++i) {
           x = (*i)%q;
           y = (*i)/q;
           //dout(10) << "B symbol recovered at (x,y) = (" << x <<","<<y<<")"<<dendl;
