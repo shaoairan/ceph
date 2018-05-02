@@ -72,6 +72,10 @@ public:
     return k;
   }
 
+  int get_sub_chunk_count() override {
+    return sub_chunk_no;
+  }
+
   unsigned int get_chunk_size(unsigned int object_size) const override;
   
   int minimum_to_decode(const set<int> &want_to_read,
@@ -110,7 +114,10 @@ public:
 
 private:
 
-  int decode_layered(set<int>& erased_chunks, map<int, bufferlist>* chunks);
+  int decode_layered(set<int>& erased_chunks, std::map<int, bufferlist>* chunks);
+  int repair_one_lost_chunk(map<int, bufferlist> &recovered_data, set<int> &aloof_nodes,
+                            map<int, bufferlist> &helper_data, int repair_blocksize, 
+                            map<int,int> &repair_sub_chunks_ind);
 
   int repair_lost_chunks(map<int, bufferlist> &recovered_data, set<int> &aloof_nodes,
                          map<int, bufferlist> &helper_data, int repair_blocksize, 
@@ -121,8 +128,8 @@ private:
                             int helper_chunk_ind,
                             map<int, int> &repair_sub_chunks_ind);
 
-  int decode_erasures(const set<int>& erased_chunks, int z, int* z_vec,
-                      map<int, bufferlist>& chunks, int sc_size);
+  int decode_erasures(const set<int>& erased_chunks, int z,
+                      map<int, bufferlist>* chunks, int sc_size);
 
   void group_repair_subchunks(map<int,int> &repair_subchunks, 
                               vector<pair<int,int> > &grouped_subchunks);
@@ -136,10 +143,10 @@ private:
   void recover_type1_erasure(map<int, bufferlist>& chunks, int x, int y, int z, 
                              int* z_vec, int sc_size);
 
-  void get_uncoupled_from_coupled(map<int, bufferlist>& chunks, int x, int y, int z, 
+  void get_uncoupled_from_coupled(map<int, bufferlist>* chunks, int x, int y, int z, 
                                   int* z_vec, int sc_size);
 
-  void get_coupled_from_uncoupled(map<int, bufferlist>& chunks, int x, int y, int z, 
+  void get_coupled_from_uncoupled(map<int, bufferlist>* chunks, int x, int y, int z, 
                                   int* z_vec, int sc_size);
 
   void get_plane_vector(int z, int* z_vec);

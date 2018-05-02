@@ -3,8 +3,19 @@
 #include <errno.h>
 #include "include/encoding.h"
 #include "ECUtil.h"
+#include "common/debug.h"
+
+#define dout_context g_ceph_context
+#define dout_subsys ceph_subsys_osd 
+#undef dout_prefix
+#define dout_prefix _prefix(_dout)
 
 using namespace std;
+
+static ostream& _prefix(std::ostream* _dout)
+{
+  return *_dout << "ECUtil: ";
+}
 
 int ECUtil::decode(
   const stripe_info_t &sinfo,
@@ -80,6 +91,8 @@ int ECUtil::decode(
   int repair_data_per_chunk = 0;
   int subchunk_size = sinfo.get_chunk_size()/ec_impl->get_sub_chunk_count();
 
+  dout(10) << __func__ << "chunk_size" << sinfo.get_chunk_size() << dendl;
+
   for (auto &&i : to_decode) {
     auto found = min.find(i.first);
     if (found != min.end()) {
@@ -88,6 +101,7 @@ int ECUtil::decode(
         repair_subchunk_count += subchunks.second;
       }
       repair_data_per_chunk = repair_subchunk_count * subchunk_size;
+      dout(10) << __func__ << " repair_data_per_chunk" << repair_data_per_chunk << " subchunk_size:" << subchunk_size << dendl;
       chunks_count = (int)i.second.length() / repair_data_per_chunk;
       break;
     }
