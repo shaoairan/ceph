@@ -10,6 +10,13 @@ target_link_libraries(ceph_erasure_code_benchmark ceph-common ${Boost_PROGRAM_OP
 install(TARGETS ceph_erasure_code_benchmark
   DESTINATION bin)
 
+add_executable(ceph_clmsr_benchmark 
+  ${CMAKE_SOURCE_DIR}/src/erasure-code/ErasureCode.cc
+  ceph_clmsr_benchmark.cc)
+target_link_libraries(ceph_clmsr_benchmark ceph-common ${Boost_PROGRAM_OPTIONS_LIBRARY} global ${CMAKE_DL_LIBS})
+install(TARGETS ceph_clmsr_benchmark
+  DESTINATION bin)
+
 add_executable(ceph_erasure_code_non_regression ceph_erasure_code_non_regression.cc)
 target_link_libraries(ceph_erasure_code_non_regression ceph-common ${Boost_PROGRAM_OPTIONS_LIBRARY} global ${CMAKE_DL_LIBS})
 

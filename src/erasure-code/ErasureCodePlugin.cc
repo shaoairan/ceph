@@ -129,6 +129,13 @@ int ErasureCodePluginRegistry::load(const std::string &plugin_name,
   assert(lock.is_locked());
   std::string fname = directory + "/" PLUGIN_PREFIX
     + plugin_name + PLUGIN_SUFFIX;
+
+/*  void *library1 = dlopen("/home/houyx/DataDisk/development/ceph/build/lib/libcephCudaLibTest.so", RTLD_NOW);
+ if (!library1) {
+    *ss << "load dlopen(" << fname << "11111): " << dlerror();
+    return -EIO;
+  }*/
+
   void *library = dlopen(fname.c_str(), RTLD_NOW);
   if (!library) {
     *ss << "load dlopen(" << fname << "): " << dlerror();

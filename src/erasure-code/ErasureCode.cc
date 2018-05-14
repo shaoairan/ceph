@@ -19,12 +19,43 @@
 #include <vector>
 #include <algorithm>
 #include <ostream>
-
+#include <iostream>
 #include "common/strtol.h"
 #include "ErasureCode.h"
 #include "include/buffer.h"
 
 const unsigned ErasureCode::SIMD_ALIGN = 32;
+
+#define FT(A) FunctionTest1 printFunctionName(#A)
+
+class FunctionTest1
+{
+  static int tabs;
+  std::string a;
+  public:
+    FunctionTest1( std::string a_ ):a(a_)
+    {
+      
+      for( int i = 0; i < tabs; i ++ )
+      {
+          printf("\t");
+      }
+      std::cout << "entering:: " << a << "\n";
+      tabs ++;
+    }
+
+    ~FunctionTest1()
+    {
+      tabs --;
+      for( int i = 0; i < tabs; i ++ )
+      {
+          printf("\t");
+      }
+      std::cout << "leave:: " << a << "\n";
+    }
+};
+
+int FunctionTest1::tabs = 1;
 
 int ErasureCode::sanity_check_k(int k, ostream *ss)
 {
@@ -135,6 +166,7 @@ int ErasureCode::encode(const set<int> &want_to_encode,
                         const bufferlist &in,
                         map<int, bufferlist> *encoded)
 {
+  FT(ErasureCode::encode);
   unsigned int k = get_data_chunk_count();
   unsigned int m = get_chunk_count() - k;
   bufferlist out;
@@ -159,6 +191,7 @@ int ErasureCode::decode(const set<int> &want_to_read,
                         const map<int, bufferlist> &chunks,
                         map<int, bufferlist> *decoded)
 {
+  FT(ErasureCode::decode);
   vector<int> have;
   have.reserve(chunks.size());
   for (map<int, bufferlist>::const_iterator i = chunks.begin();
@@ -194,6 +227,7 @@ int ErasureCode::decode2(const set<int> &want_to_read,
                         const map<int, bufferlist> &chunks,
                         map<int, bufferlist> *decoded, int chunk_size)
 {
+  FT(ErasureCode::decode2);
   return decode(want_to_read, chunks, decoded);
 }
 

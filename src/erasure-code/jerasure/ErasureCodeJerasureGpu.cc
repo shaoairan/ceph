@@ -1,19 +1,3 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*- 
-// vim: ts=8 sw=2 smarttab
-/*
- * Ceph distributed storage system
- *
- * Copyright (C) 2013,2014 Cloudwatt <libre.licensing@cloudwatt.com>
- * Copyright (C) 2014 Red Hat <contact@redhat.com>
- *
- * Author: Loic Dachary <loic@dachary.org>
- *
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation; either
- *  version 2.1 of the License, or (at your option) any later version.
- * 
- */
 #include <dlfcn.h>
 #include "common/debug.h"
 #include "ErasureCodeJerasure.h"
@@ -29,7 +13,9 @@ extern "C" {
 #include "cauchy.h"
 #include "liberation.h"
 }
-
+//
+// ErasureCodeJerasureCLMSR_GPU
+//
 #define LARGEST_VECTOR_WORDSIZE 16
 
 #define dout_context g_ceph_context
@@ -39,36 +25,7 @@ extern "C" {
 
 #define talloc(type, num) (type *) malloc(sizeof(type)*(num))
 
-#define FT(A) FunctionTest printFunctionName(#A)
-
-class FunctionTest
-{
-  static int tabs;
-  std::string a;
-  public:
-    FunctionTest( std::string a_ ):a(a_)
-    {
-      
-      for( int i = 0; i < tabs; i ++ )
-      {
-          printf("\t");
-      }
-      std::cout << "entering:: " << a << "\n";
-      tabs ++;
-    }
-
-    ~FunctionTest()
-    {
-      tabs --;
-      for( int i = 0; i < tabs; i ++ )
-      {
-          printf("\t");
-      }
-      std::cout << "leave:: " << a << "\n";
-    }
-};
-
-int FunctionTest::tabs = 2;
+#define FT(A) FunctionTest3 printFunctionName(#A)
 
 static ostream& _prefix(std::ostream* _dout)
 {
@@ -87,560 +44,54 @@ static int pow_int(int a, int x){
   return power;
 }
 
-int ErasureCodeJerasure::create_ruleset(const string &name,
-					CrushWrapper &crush,
-					ostream *ss) const
-{
-  int ruleid = crush.add_simple_ruleset(name, ruleset_root, ruleset_failure_domain,
-					"indep", pg_pool_t::TYPE_ERASURE, ss);
-  if (ruleid < 0)
-    return ruleid;
-  else {
-    crush.set_rule_mask_max_size(ruleid, get_chunk_count());
-    return crush.get_rule_mask_ruleset(ruleid);
-  }
-}
 
-int ErasureCodeJerasure::init(ErasureCodeProfile& profile, ostream *ss)
+class FunctionTest3
 {
-  FT(ErasureCodeJerasure::init);
-  int err = 0;
-  dout(10) << "technique=" << technique << dendl;
-  profile["technique"] = technique;
-  err |= to_string("ruleset-root", profile,
-		   &ruleset_root,
-		   DEFAULT_RULESET_ROOT, ss);
-  err |= to_string("ruleset-failure-domain", profile,
-		   &ruleset_failure_domain,
-		   DEFAULT_RULESET_FAILURE_DOMAIN, ss);
-  err |= parse(profile, ss);
-  if (err)
-    return err;
-  prepare();
-  ErasureCode::init(profile, ss);
-  return err;
-}
-
-int ErasureCodeJerasure::parse(ErasureCodeProfile &profile,
-			       ostream *ss)
-{
-  int err = ErasureCode::parse(profile, ss);
-  err |= to_int("k", profile, &k, DEFAULT_K, ss);
-  err |= to_int("m", profile, &m, DEFAULT_M, ss);
-  err |= to_int("w", profile, &w, DEFAULT_W, ss);
-  if (chunk_mapping.size() > 0 && (int)chunk_mapping.size() != k + m) {
-    *ss << "mapping " << profile.find("mapping")->second
-	<< " maps " << chunk_mapping.size() << " chunks instead of"
-	<< " the expected " << k + m << " and will be ignored" << std::endl;
-    chunk_mapping.clear();
-    err = -EINVAL;
-  }
-  err |= sanity_check_k(k, ss);
-  return err;
-}
-
-unsigned int ErasureCodeJerasure::get_chunk_size(unsigned int object_size) const
-{
-  unsigned alignment = get_alignment();
-  if (per_chunk_alignment) {
-    unsigned chunk_size = object_size / k;
-    if (object_size % k)
-      chunk_size++;
-    dout(20) << "get_chunk_size: chunk_size " << chunk_size
-	     << " must be modulo " << alignment << dendl; 
-    assert(alignment <= chunk_size);
-    unsigned modulo = chunk_size % alignment;
-    if (modulo) {
-      dout(10) << "get_chunk_size: " << chunk_size
-	       << " padded to " << chunk_size + alignment - modulo << dendl;
-      chunk_size += alignment - modulo;
+  static int tabs;
+  std::string a;
+  public:
+    FunctionTest3( std::string a_ ):a(a_)
+    {
+      
+      for( int i = 0; i < tabs; i ++ )
+      {
+          printf("\t");
+      }
+      std::cout << "entering:: " << a << "\n";
+      tabs ++;
     }
-    return chunk_size;
-  } else {
-    unsigned tail = object_size % alignment;
-    unsigned padded_length = object_size + ( tail ?  ( alignment - tail ) : 0 );
-    assert(padded_length % (k*sub_chunk_no) == 0);
-    return padded_length / k;
-  }
-}
 
-int ErasureCodeJerasure::encode_chunks(const set<int> &want_to_encode,
-				       map<int, bufferlist> *encoded)
-{
-
-  FT( ErasureCodeJerasure::encode_chunks );
-  int chunk_size = (*encoded->begin()).second.length();
-  char *chunks[k + m + nu];
-
-  for (int i = 0; i < k + m; i++){
-    if (i < k) {
-      chunks[i] = (*encoded)[i].c_str();
-    } else {
-    chunks[i+nu] = (*encoded)[i].c_str();
+    ~FunctionTest3()
+    {
+      tabs --;
+      for( int i = 0; i < tabs; i ++ )
+      {
+          printf("\t");
+      }
+      std::cout << "leave:: " << a << "\n";
     }
-  }
+};
 
-  for(int i = k; i < k+nu; i++){
-    //create buffers that will be cleaned later   
-    chunks[i] = (char*) malloc(chunk_size);
-    memset(chunks[i],0, chunk_size);
-  }
+int FunctionTest3::tabs = 2;
 
-  jerasure_encode(&chunks[0], &chunks[k+nu], (*encoded)[0].length());
-
-  //clean the memory allocated for nu shortened chunks
-  for(int i=k ; i < k+nu; i++){
-    free(chunks[i]);
-  }
-
-  return 0;
-}
-
-int ErasureCodeJerasure::decode_chunks(const set<int> &want_to_read,
-				       const map<int, bufferlist> &chunks,
-				       map<int, bufferlist> *decoded)
+void ErasureCodeJerasureCLMSR_GPU::jerasure_encode(char **data, char **coding, int blocksize)
 {
-  FT(ErasureCodeJerasure::decode_chunks);
-  unsigned blocksize = (*chunks.begin()).second.length();
-  int erasures[k + m + 1];
-  int erasures_count = 0;
-  char *data[k+nu];
-  char *coding[m];
-  for (int i =  0; i < k + m ; i++) {
-    if (chunks.find(i) == chunks.end()) {
-      if(i < k)
-        erasures[erasures_count] = i;
-      else
-        erasures[erasures_count] = i+nu;
-      erasures_count++;
-    }
-    if (i < k)
-      data[i] = (*decoded)[i].c_str();
-    else
-      coding[i - k] = (*decoded)[i].c_str();
-  }
-
-  for(int i=k; i < k+nu; i++){
-    data[i] = (char*)malloc(blocksize);
-    if(data[i]==NULL){
-      assert(0);
-    }
-    memset(data[i], 0, blocksize);
-  }
-
-  erasures[erasures_count] = -1;
-
-  assert(erasures_count > 0);
-
-  int res = jerasure_decode(erasures, data, coding, blocksize);
-
-  for (int i=k ; i < k+nu; i++){
-    free(data[i]);
-  }
-
-  return res;
-}
-
-int ErasureCodeJerasure::minimum_to_decode2(const set<int> &want_to_read,
-                                  const set<int> &available,
-                                  map<int, list<pair<int,int>>> *minimum){
-  return ErasureCode::minimum_to_decode2(want_to_read, available, minimum);
-}
-
-int ErasureCodeJerasure::decode2(const set<int> &want_to_read,
-                const map<int, bufferlist> &chunks,
-                map<int, bufferlist> *decoded, int chunk_size)
-{
-  FT(ErasureCodeJerasure::decode2);
-  return ErasureCode::decode(want_to_read, chunks, decoded);
-}
-
-bool ErasureCodeJerasure::is_prime(int value)
-{
-  int prime55[] = {
-    2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,
-    73,79,83,89,97,101,103,107,109,113,127,131,137,139,149,
-    151,157,163,167,173,179,
-    181,191,193,197,199,211,223,227,229,233,239,241,251,257
-  };
-  int i;
-  for (i = 0; i < 55; i++)
-    if (value == prime55[i])
-      return true;
-  return false;
-}
-
-// 
-// ErasureCodeJerasureReedSolomonVandermonde
-//
-void ErasureCodeJerasureReedSolomonVandermonde::jerasure_encode(char **data,
-                                                                char **coding,
-                                                                int blocksize)
-{
-  jerasure_matrix_encode(k, m, w, matrix, data, coding, blocksize);
-}
-
-int ErasureCodeJerasureReedSolomonVandermonde::jerasure_decode(int *erasures,
-                                                                char **data,
-                                                                char **coding,
-                                                                int blocksize)
-{
-  return jerasure_matrix_decode(k, m, w, matrix, 1,
-				erasures, data, coding, blocksize);
-}
-
-unsigned ErasureCodeJerasureReedSolomonVandermonde::get_alignment() const
-{
-  if (per_chunk_alignment) {
-    return w * LARGEST_VECTOR_WORDSIZE;
-  } else {
-    unsigned alignment = k*w*sizeof(int);
-    if ( ((w*sizeof(int))%LARGEST_VECTOR_WORDSIZE) )
-      alignment = k*w*LARGEST_VECTOR_WORDSIZE;
-    return alignment;
-  }
-}
-
-int ErasureCodeJerasureReedSolomonVandermonde::parse(ErasureCodeProfile &profile,
-						     ostream *ss)
-{
-  int err = 0;
-  err |= ErasureCodeJerasure::parse(profile, ss);
-  if (w != 8 && w != 16 && w != 32) {
-    *ss << "ReedSolomonVandermonde: w=" << w
-	<< " must be one of {8, 16, 32} : revert to " << DEFAULT_W << std::endl;
-    profile["w"] = "8";
-    err |= to_int("w", profile, &w, DEFAULT_W, ss);
-    err = -EINVAL;
-  }
-  err |= to_bool("jerasure-per-chunk-alignment", profile,
-		 &per_chunk_alignment, "false", ss);
-  return err;
-}
-
-void ErasureCodeJerasureReedSolomonVandermonde::prepare()
-{
-  matrix = reed_sol_vandermonde_coding_matrix(k, m, w);
-}
-
-// 
-// ErasureCodeJerasureReedSolomonRAID6
-//
-void ErasureCodeJerasureReedSolomonRAID6::jerasure_encode(char **data,
-                                                                char **coding,
-                                                                int blocksize)
-{
-  reed_sol_r6_encode(k, w, data, coding, blocksize);
-}
-
-int ErasureCodeJerasureReedSolomonRAID6::jerasure_decode(int *erasures,
-							 char **data,
-							 char **coding,
-							 int blocksize)
-{
-  return jerasure_matrix_decode(k, m, w, matrix, 1, erasures, data, coding, blocksize);
-}
-
-unsigned ErasureCodeJerasureReedSolomonRAID6::get_alignment() const
-{
-  if (per_chunk_alignment) {
-    return w * LARGEST_VECTOR_WORDSIZE;
-  } else {
-    unsigned alignment = k*w*sizeof(int);
-    if ( ((w*sizeof(int))%LARGEST_VECTOR_WORDSIZE) )
-      alignment = k*w*LARGEST_VECTOR_WORDSIZE;
-    return alignment;
-  }
-}
-
-int ErasureCodeJerasureReedSolomonRAID6::parse(ErasureCodeProfile &profile,
-					       ostream *ss)
-{
-  int err = ErasureCodeJerasure::parse(profile, ss);
-  profile.erase("m");
-  m = 2;
-  if (w != 8 && w != 16 && w != 32) {
-    *ss << "ReedSolomonRAID6: w=" << w
-	<< " must be one of {8, 16, 32} : revert to 8 " << std::endl;
-    profile["w"] = "8";
-    err |= to_int("w", profile, &w, DEFAULT_W, ss);
-    err = -EINVAL;
-  }
-  return err;
-}
-
-void ErasureCodeJerasureReedSolomonRAID6::prepare()
-{
-  matrix = reed_sol_r6_coding_matrix(k, w);
-}
-
-// 
-// ErasureCodeJerasureCauchy
-//
-void ErasureCodeJerasureCauchy::jerasure_encode(char **data,
-						char **coding,
-						int blocksize)
-{
-  jerasure_schedule_encode(k, m, w, schedule,
-			   data, coding, blocksize, packetsize);
-}
-
-int ErasureCodeJerasureCauchy::jerasure_decode(int *erasures,
-					       char **data,
-					       char **coding,
-					       int blocksize)
-{
-  return jerasure_schedule_decode_lazy(k, m, w, bitmatrix,
-				       erasures, data, coding, blocksize, packetsize, 1);
-}
-
-unsigned ErasureCodeJerasureCauchy::get_alignment() const
-{
-  if (per_chunk_alignment) {
-    unsigned alignment = w * packetsize;
-    unsigned modulo = alignment % LARGEST_VECTOR_WORDSIZE;
-    if (modulo)
-      alignment += LARGEST_VECTOR_WORDSIZE - modulo;
-    return alignment;
-  } else {
-    unsigned alignment = k*w*packetsize*sizeof(int);
-    if ( ((w*packetsize*sizeof(int))%LARGEST_VECTOR_WORDSIZE) )
-      alignment = k*w*packetsize*LARGEST_VECTOR_WORDSIZE;
-    return alignment;
-  }  
-}
-
-int ErasureCodeJerasureCauchy::parse(ErasureCodeProfile &profile,
-				     ostream *ss)
-{
-  int err = ErasureCodeJerasure::parse(profile, ss);
-  err |= to_int("packetsize", profile, &packetsize, DEFAULT_PACKETSIZE, ss);
-  err |= to_bool("jerasure-per-chunk-alignment", profile,
-		 &per_chunk_alignment, "false", ss);
-  return err;
-}
-
-void ErasureCodeJerasureCauchy::prepare_schedule(int *matrix)
-{
-  bitmatrix = jerasure_matrix_to_bitmatrix(k, m, w, matrix);
-  schedule = jerasure_smart_bitmatrix_to_schedule(k, m, w, bitmatrix);
-}
-
-// 
-// ErasureCodeJerasureCauchyOrig
-//
-void ErasureCodeJerasureCauchyOrig::prepare()
-{
-  int *matrix = cauchy_original_coding_matrix(k, m, w);
-  prepare_schedule(matrix);
-  free(matrix);
-}
-
-// 
-// ErasureCodeJerasureCauchyGood
-//
-void ErasureCodeJerasureCauchyGood::prepare()
-{
-  int *matrix = cauchy_good_general_coding_matrix(k, m, w);
-  prepare_schedule(matrix);
-  free(matrix);
-}
-
-// 
-// ErasureCodeJerasureLiberation
-//
-ErasureCodeJerasureLiberation::~ErasureCodeJerasureLiberation()
-{
-  if (bitmatrix)
-    free(bitmatrix);
-  if (schedule)
-    jerasure_free_schedule(schedule);
-}
-
-void ErasureCodeJerasureLiberation::jerasure_encode(char **data,
-                                                    char **coding,
-                                                    int blocksize)
-{
-  jerasure_schedule_encode(k, m, w, schedule, data,
-			   coding, blocksize, packetsize);
-}
-
-int ErasureCodeJerasureLiberation::jerasure_decode(int *erasures,
-                                                    char **data,
-                                                    char **coding,
-                                                    int blocksize)
-{
-  return jerasure_schedule_decode_lazy(k, m, w, bitmatrix, erasures, data,
-				       coding, blocksize, packetsize, 1);
-}
-
-unsigned ErasureCodeJerasureLiberation::get_alignment() const
-{
-  unsigned alignment = k*w*packetsize*sizeof(int);
-  if ( ((w*packetsize*sizeof(int))%LARGEST_VECTOR_WORDSIZE) )
-    alignment = k*w*packetsize*LARGEST_VECTOR_WORDSIZE;
-  return alignment;
-}
-
-bool ErasureCodeJerasureLiberation::check_k(ostream *ss) const
-{
-  if (k > w) {
-    *ss << "k=" << k << " must be less than or equal to w=" << w << std::endl;
-    return false;
-  } else {
-    return true;
-  }
-}
-
-bool ErasureCodeJerasureLiberation::check_w(ostream *ss) const
-{
-  if (w <= 2 || !is_prime(w)) {
-    *ss <<  "w=" << w << " must be greater than two and be prime" << std::endl;
-    return false;
-  } else {
-    return true;
-  }
-}
-
-bool ErasureCodeJerasureLiberation::check_packetsize_set(ostream *ss) const
-{
-  if (packetsize == 0) {
-    *ss << "packetsize=" << packetsize << " must be set" << std::endl;
-    return false;
-  } else {
-    return true;
-  }
-}
-
-bool ErasureCodeJerasureLiberation::check_packetsize(ostream *ss) const
-{
-  if ((packetsize%(sizeof(int))) != 0) {
-    *ss << "packetsize=" << packetsize
-	<< " must be a multiple of sizeof(int) = " << sizeof(int) << std::endl;
-    return false;
-  } else {
-    return true;
-  }
-}
-
-int ErasureCodeJerasureLiberation::revert_to_default(ErasureCodeProfile &profile,
-						     ostream *ss)
-{
-  int err = 0;
-  *ss << "reverting to k=" << DEFAULT_K << ", w="
-      << DEFAULT_W << ", packetsize=" << DEFAULT_PACKETSIZE << std::endl;
-  profile["k"] = DEFAULT_K;
-  err |= to_int("k", profile, &k, DEFAULT_K, ss);
-  profile["w"] = DEFAULT_W;
-  err |= to_int("w", profile, &w, DEFAULT_W, ss);
-  profile["packetsize"] = DEFAULT_PACKETSIZE;
-  err |= to_int("packetsize", profile, &packetsize, DEFAULT_PACKETSIZE, ss);
-  return err;
-}
-
-int ErasureCodeJerasureLiberation::parse(ErasureCodeProfile &profile,
-					 ostream *ss)
-{
-  int err = ErasureCodeJerasure::parse(profile, ss);
-  err |= to_int("packetsize", profile, &packetsize, DEFAULT_PACKETSIZE, ss);
-
-  bool error = false;
-  if (!check_k(ss))
-    error = true;
-  if (!check_w(ss))
-    error = true;
-  if (!check_packetsize_set(ss) || !check_packetsize(ss))
-    error = true;
-  if (error) {
-    revert_to_default(profile, ss);
-    err = -EINVAL;
-  }
-  return err;
-}
-
-void ErasureCodeJerasureLiberation::prepare()
-{
-  bitmatrix = liberation_coding_bitmatrix(k, w);
-  schedule = jerasure_smart_bitmatrix_to_schedule(k, m, w, bitmatrix);
-}
-
-// 
-// ErasureCodeJerasureBlaumRoth
-//
-bool ErasureCodeJerasureBlaumRoth::check_w(ostream *ss) const
-{
-  // back in Firefly, w = 7 was the default and produced useable 
-  // chunks. Tolerate this value for backward compatibility.
-  if (w == 7)
-    return true;
-  if (w <= 2 || !is_prime(w+1)) {
-    *ss <<  "w=" << w << " must be greater than two and "
-	<< "w+1 must be prime" << std::endl;
-    return false;
-  } else {
-    return true;
-  }
-}
-
-void ErasureCodeJerasureBlaumRoth::prepare()
-{
-  bitmatrix = blaum_roth_coding_bitmatrix(k, w);
-  schedule = jerasure_smart_bitmatrix_to_schedule(k, m, w, bitmatrix);
-}
-
-// 
-// ErasureCodeJerasureLiber8tion
-//
-int ErasureCodeJerasureLiber8tion::parse(ErasureCodeProfile &profile,
-					 ostream *ss)
-{
-  int err = ErasureCodeJerasure::parse(profile, ss);
-  profile.erase("m");
-  err |= to_int("m", profile, &m, DEFAULT_M, ss);
-  profile.erase("w");
-  err |= to_int("w", profile, &w, DEFAULT_W, ss);
-  err |= to_int("packetsize", profile, &packetsize, DEFAULT_PACKETSIZE, ss);
-
-  bool error = false;
-  if (!check_k(ss))
-    error = true;
-  if (!check_packetsize_set(ss))
-    error = true;
-  if (error) {
-    revert_to_default(profile, ss);
-    err = -EINVAL;
-  }
-  return err;
-}
-
-void ErasureCodeJerasureLiber8tion::prepare()
-{
-  bitmatrix = liber8tion_coding_bitmatrix(k);
-  schedule = jerasure_smart_bitmatrix_to_schedule(k, m, w, bitmatrix);
-}
-
-//
-// ErasureCodeJerasureCLMSR
-//
-
-void ErasureCodeJerasureCLMSR::jerasure_encode(char **data, char **coding, int blocksize)
-{
-  FT(ErasureCodeJerasureCLMSR::jerasure_encode);
+  FT(ErasureCodeJerasureCLMSR_GPU::jerasure_encode);
   if(encode_systematic(data, coding, blocksize) == -1){
       dout(0) << "error in encode_systematic" << dendl;
   }
 }
 
-int ErasureCodeJerasureCLMSR::jerasure_decode(int *erasures, char **data,
+int ErasureCodeJerasureCLMSR_GPU::jerasure_decode(int *erasures, char **data,
                                                              char **coding,
                                                              int chunksize)
 {
-  FT(ErasureCodeJerasureCLMSR::jerasure_decode);
+  FT(ErasureCodeJerasureCLMSR_GPU::jerasure_decode);
   int r = decode_layered(erasures, data, coding, chunksize);
   return r;
 }
 
-unsigned ErasureCodeJerasureCLMSR::get_alignment() const
+unsigned ErasureCodeJerasureCLMSR_GPU::get_alignment() const
 {
   if (per_chunk_alignment) {
     return w * LARGEST_VECTOR_WORDSIZE;
@@ -652,7 +103,7 @@ unsigned ErasureCodeJerasureCLMSR::get_alignment() const
   }
 }
 
-int ErasureCodeJerasureCLMSR::create_ruleset(const string &name,
+int ErasureCodeJerasureCLMSR_GPU::create_ruleset(const string &name,
                                    CrushWrapper &crush,
                                    ostream *ss) const
 {
@@ -710,7 +161,7 @@ int ErasureCodeJerasureCLMSR::create_ruleset(const string &name,
   return ruleset;
 }
 
-int ErasureCodeJerasureCLMSR::parse_ruleset(ErasureCodeProfile &profile,
+int ErasureCodeJerasureCLMSR_GPU::parse_ruleset(ErasureCodeProfile &profile,
                                   ostream *ss)
 {
   int err = 0;
@@ -761,7 +212,7 @@ int ErasureCodeJerasureCLMSR::parse_ruleset(ErasureCodeProfile &profile,
   return 0;
 }
 
-int ErasureCodeJerasureCLMSR::parse_ruleset_step(string description_string,
+int ErasureCodeJerasureCLMSR_GPU::parse_ruleset_step(string description_string,
                                        json_spirit::mArray description,
                                        ostream *ss)
 {
@@ -801,10 +252,10 @@ int ErasureCodeJerasureCLMSR::parse_ruleset_step(string description_string,
   return 0;
 } 
 
-int ErasureCodeJerasureCLMSR::parse(ErasureCodeProfile &profile,
+int ErasureCodeJerasureCLMSR_GPU::parse(ErasureCodeProfile &profile,
 						     ostream *ss)
 {
-  FT(ErasureCodeJerasureCLMSR::parse);
+  FT(ErasureCodeJerasureCLMSR_GPU::parse);
   printf("======================doing cuda!!");
 /*  void *myGpuLibrary = dlopen("libcephCudaLibTest.so", RTLD_NOW);
   if (!myGpuLibrary) {
@@ -892,7 +343,7 @@ int ErasureCodeJerasureCLMSR::parse(ErasureCodeProfile &profile,
   return err;
 }
 
-void ErasureCodeJerasureCLMSR::prepare()
+void ErasureCodeJerasureCLMSR_GPU::prepare()
 {
   dout(10) << __func__ << " k:" << k << " m: " << m << " w:" << w << dendl;
   
@@ -928,7 +379,7 @@ void ErasureCodeJerasureCLMSR::prepare()
   for(int i = 0; i < q*t; i++)B_buf[i] = NULL;
 }
 
-int ErasureCodeJerasureCLMSR::minimum_to_decode2(const set<int> &want_to_read,
+int ErasureCodeJerasureCLMSR_GPU::minimum_to_decode2(const set<int> &want_to_read,
                                   const set<int> &available,
                                   map<int, list<pair<int,int>>> *minimum){
   set<int> minimum_shard_ids;
@@ -954,10 +405,10 @@ int ErasureCodeJerasureCLMSR::minimum_to_decode2(const set<int> &want_to_read,
   }
 }
 
-int ErasureCodeJerasureCLMSR::decode2(const set<int> &want_to_read,
+int ErasureCodeJerasureCLMSR_GPU::decode2(const set<int> &want_to_read,
                 const map<int, bufferlist> &chunks,
                 map<int, bufferlist> *decoded, int chunk_size){
-  FT(ErasureCodeJerasureCLMSR::decode2);
+  FT(ErasureCodeJerasureCLMSR_GPU::decode2);
   set<int> avail;
   for(map<int, bufferlist>::const_iterator i = chunks.begin();
       i != chunks.end(); ++i){
@@ -990,7 +441,7 @@ int ErasureCodeJerasureCLMSR::decode2(const set<int> &want_to_read,
   }
 }
 
-int ErasureCodeJerasureCLMSR::minimum_to_repair(const set<int> &want_to_read,
+int ErasureCodeJerasureCLMSR_GPU::minimum_to_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks,
                                    set<int> *minimum)
 {
@@ -1052,7 +503,7 @@ int ErasureCodeJerasureCLMSR::minimum_to_repair(const set<int> &want_to_read,
   return 0;
 }
 
-/*int ErasureCodeJerasureCLMSR::minimum_to_repair(const set<int> &want_to_read,
+/*int ErasureCodeJerasureCLMSR_GPU::minimum_to_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks,
                                    set<int> *minimum)
 {
@@ -1102,7 +553,7 @@ int ErasureCodeJerasureCLMSR::minimum_to_repair(const set<int> &want_to_read,
 
 //this will be called by ECBackend when a helper node needs to know what subchunks to read,
 //the result will be sent as input to filestore read.
-void ErasureCodeJerasureCLMSR::get_repair_subchunks(const set<int> &to_repair,
+void ErasureCodeJerasureCLMSR_GPU::get_repair_subchunks(const set<int> &to_repair,
                                    const set<int> &helper_chunks,
                                    int helper_chunk_ind,
                                    map<int, int> &repair_sub_chunks_ind)
@@ -1130,7 +581,7 @@ void ErasureCodeJerasureCLMSR::get_repair_subchunks(const set<int> &to_repair,
   }
 }
 
-void ErasureCodeJerasureCLMSR::group_repair_subchunks(map<int,int> &repair_subchunks, list<pair<int,int> > &grouped_subchunks) {
+void ErasureCodeJerasureCLMSR_GPU::group_repair_subchunks(map<int,int> &repair_subchunks, list<pair<int,int> > &grouped_subchunks) {
   set<int> temp;
   for(map<int,int>:: iterator r = repair_subchunks.begin(); r!= repair_subchunks.end();r++) {
     temp.insert(r->second);
@@ -1156,10 +607,10 @@ void ErasureCodeJerasureCLMSR::group_repair_subchunks(map<int,int> &repair_subch
   }
 }   
 
-int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
+int ErasureCodeJerasureCLMSR_GPU::is_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks){
 
-  FT(ErasureCodeJerasureCLMSR::is_repair);
+  FT(ErasureCodeJerasureCLMSR_GPU::is_repair);
   //dout(10)<<__func__<< "want_to_read:" << want_to_read<<"available"<<available_chunks<<dendl;
   if(includes(
         available_chunks.begin(), available_chunks.end(), want_to_read.begin(), want_to_read.end()) ) return 0;
@@ -1206,7 +657,7 @@ int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
   return 0;
 }
 
-/*int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
+/*int ErasureCodeJerasureCLMSR_GPU::is_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks){
 
   //dout(10)<<__func__<< "want_to_read:" << want_to_read<<"available"<<available_chunks<<dendl;
@@ -1244,7 +695,7 @@ int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
 }
 */
 
-int ErasureCodeJerasureCLMSR::get_repair_sub_chunk_count(const set<int> &want_to_read)
+int ErasureCodeJerasureCLMSR_GPU::get_repair_sub_chunk_count(const set<int> &want_to_read)
 {
   int repair_subchunks_count = 1;
 
@@ -1264,11 +715,11 @@ int ErasureCodeJerasureCLMSR::get_repair_sub_chunk_count(const set<int> &want_to
 }
 
 //for any d <=n-1
-int ErasureCodeJerasureCLMSR::repair(const set<int> &want_to_read,
+int ErasureCodeJerasureCLMSR_GPU::repair(const set<int> &want_to_read,
                         const map<int, bufferlist> &chunks,
                         map<int, bufferlist> *repaired)
 {
-  FT(ErasureCodeJerasureCLMSR::repair);
+  FT(ErasureCodeJerasureCLMSR_GPU::repair);
   //dout(10) << __func__ << " want_to_read: " << want_to_read.size() << " chunk size: "<< chunks.size() << dendl;
   //dout(10) << __func__ << " want_to_read " << want_to_read << " hlper chunks: "<< chunks << dendl;
   if(d< k+m-1) {
@@ -1354,10 +805,10 @@ int ErasureCodeJerasureCLMSR::repair(const set<int> &want_to_read,
   return r;
 }
 
-int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, set<int> &aloof_nodes,
+int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks(map<int,char*> &repaired_data, set<int> &aloof_nodes,
                            map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind)
 {
- FT(ErasureCodeJerasureCLMSR::repair_lost_chunks);
+ FT(ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks);
  unsigned sub_chunksize = repair_blocksize/repair_sub_chunks_ind.size();
 
   int z_vec[t];
@@ -1539,9 +990,9 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
   return 0;
 }
 
-int ErasureCodeJerasureCLMSR::encode_systematic(char** data_ptrs, char** code_ptrs, int size)
+int ErasureCodeJerasureCLMSR_GPU::encode_systematic(char** data_ptrs, char** code_ptrs, int size)
 {
-  FT(ErasureCodeJerasureCLMSR::encode_systematic);
+  FT(ErasureCodeJerasureCLMSR_GPU::encode_systematic);
   int i;
 
   //Need the chunk size to be aligned to sub_chunk_no
@@ -1562,11 +1013,11 @@ int ErasureCodeJerasureCLMSR::encode_systematic(char** data_ptrs, char** code_pt
   return ret;
 }
 
-int ErasureCodeJerasureCLMSR::decode_layered(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size)
+int ErasureCodeJerasureCLMSR_GPU::decode_layered(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size)
 {
 
   printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\n****************\n", gamma,q,t,d );
-  FT(ErasureCodeJerasureCLMSR::decode_layered);
+  FT(ErasureCodeJerasureCLMSR_GPU::decode_layered);
   int i;
   char* A1 = NULL;
   char* A2 = NULL;
@@ -1666,7 +1117,7 @@ int ErasureCodeJerasureCLMSR::decode_layered(int* erasure_locations, char** data
   return 0;
 }
 
-void ErasureCodeJerasureCLMSR::set_planes_sequential_decoding_order(int* order, erasure_t* erasures){
+void ErasureCodeJerasureCLMSR_GPU::set_planes_sequential_decoding_order(int* order, erasure_t* erasures){
   int z, i;
 
   int z_vec[t];
@@ -1683,7 +1134,7 @@ void ErasureCodeJerasureCLMSR::set_planes_sequential_decoding_order(int* order, 
   }
 }
 
-void ErasureCodeJerasureCLMSR::decode_erasures(int* erasure_locations, int z, int* z_vec,
+void ErasureCodeJerasureCLMSR_GPU::decode_erasures(int* erasure_locations, int z, int* z_vec,
                             char** data_ptrs, char** code_ptrs, int ss_size, char** B_buf)
 {
   int x, y;
@@ -1726,7 +1177,7 @@ void ErasureCodeJerasureCLMSR::decode_erasures(int* erasure_locations, int z, in
   free(erased);
 }
 
-void ErasureCodeJerasureCLMSR::get_plane_vector(int z, int* z_vec)
+void ErasureCodeJerasureCLMSR_GPU::get_plane_vector(int z, int* z_vec)
 {
   int i ;
 
@@ -1737,7 +1188,7 @@ void ErasureCodeJerasureCLMSR::get_plane_vector(int z, int* z_vec)
   return;
 }
 
-void ErasureCodeJerasureCLMSR::get_erasure_coordinates(int* erasure_locations, erasure_t* erasures)
+void ErasureCodeJerasureCLMSR_GPU::get_erasure_coordinates(int* erasure_locations, erasure_t* erasures)
 {
   int i;
 
@@ -1748,7 +1199,7 @@ void ErasureCodeJerasureCLMSR::get_erasure_coordinates(int* erasure_locations, e
   }
 }
 
-void ErasureCodeJerasureCLMSR::get_weight_vector(erasure_t* erasures, int* weight_vec)
+void ErasureCodeJerasureCLMSR_GPU::get_weight_vector(erasure_t* erasures, int* weight_vec)
 {
   int i;
 
@@ -1760,7 +1211,7 @@ void ErasureCodeJerasureCLMSR::get_weight_vector(erasure_t* erasures, int* weigh
   return;
 }
 
-int ErasureCodeJerasureCLMSR::get_hamming_weight( int* weight_vec)
+int ErasureCodeJerasureCLMSR_GPU::get_hamming_weight( int* weight_vec)
 {
   int i;
   int weight = 0;
@@ -1772,7 +1223,7 @@ int ErasureCodeJerasureCLMSR::get_hamming_weight( int* weight_vec)
 }
 
 
-extern int ErasureCodeJerasureCLMSR::is_erasure_type_1(int ind, erasure_t* erasures, int* z_vec){
+extern int ErasureCodeJerasureCLMSR_GPU::is_erasure_type_1(int ind, erasure_t* erasures, int* z_vec){
 
   // Need to look for the column of where erasures[i] is and search to see if there is a hole dot pair.
   int i;
@@ -1790,7 +1241,7 @@ extern int ErasureCodeJerasureCLMSR::is_erasure_type_1(int ind, erasure_t* erasu
 
 }
 
-void ErasureCodeJerasureCLMSR::gamma_transform(char* dest1, char* dest2, char* code_symbol_1, char* code_symbol_2,  int size)
+void ErasureCodeJerasureCLMSR_GPU::gamma_transform(char* dest1, char* dest2, char* code_symbol_1, char* code_symbol_2,  int size)
 {
   int tmatrix[4];
   tmatrix[0] = 1;
@@ -1811,7 +1262,7 @@ void ErasureCodeJerasureCLMSR::gamma_transform(char* dest1, char* dest2, char* c
 
 }
 
-void ErasureCodeJerasureCLMSR::gamma_inverse_transform(char* dest1, char* dest2, char* code_symbol_1, char* code_symbol_2,  int size)
+void ErasureCodeJerasureCLMSR_GPU::gamma_inverse_transform(char* dest1, char* dest2, char* code_symbol_1, char* code_symbol_2,  int size)
 {
   int gamma_square = galois_single_multiply(gamma, gamma, w);
   int gamma_det_inv = galois_single_divide(1, 1 ^ (gamma_square), w);
@@ -1835,7 +1286,7 @@ void ErasureCodeJerasureCLMSR::gamma_inverse_transform(char* dest1, char* dest2,
 
 }
 
-void ErasureCodeJerasureCLMSR::get_type1_A(char* A1, char* B1, char* A2, int size){
+void ErasureCodeJerasureCLMSR_GPU::get_type1_A(char* A1, char* B1, char* A2, int size){
   int tmatrix[2];
   tmatrix[0] = 1;
   tmatrix[1] = gamma;
@@ -1850,7 +1301,7 @@ void ErasureCodeJerasureCLMSR::get_type1_A(char* A1, char* B1, char* A2, int siz
   jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
 }
 
-void ErasureCodeJerasureCLMSR::get_type2_A(char* A2, char* B1, char* A1, int size){
+void ErasureCodeJerasureCLMSR_GPU::get_type2_A(char* A2, char* B1, char* A1, int size){
   int tmatrix[2];
   tmatrix[0] = galois_single_divide(1,gamma,w);
   tmatrix[1] = tmatrix[0];
@@ -1865,7 +1316,7 @@ void ErasureCodeJerasureCLMSR::get_type2_A(char* A2, char* B1, char* A1, int siz
   jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
 }
 
-void ErasureCodeJerasureCLMSR::get_B1_fromA1B2(char* B1, char* A1, char* B2, int size)
+void ErasureCodeJerasureCLMSR_GPU::get_B1_fromA1B2(char* B1, char* A1, char* B2, int size)
 {
   int gamma_square = galois_single_multiply(gamma, gamma, w);
 
@@ -1883,7 +1334,7 @@ void ErasureCodeJerasureCLMSR::get_B1_fromA1B2(char* B1, char* A1, char* B2, int
   jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
 }
 
-void ErasureCodeJerasureCLMSR::get_B1_fromA1A2(char* B1, char* A1, char* A2, int size)
+void ErasureCodeJerasureCLMSR_GPU::get_B1_fromA1A2(char* B1, char* A1, char* A2, int size)
 {
   int tmatrix[2];
   
@@ -1900,7 +1351,7 @@ void ErasureCodeJerasureCLMSR::get_B1_fromA1A2(char* B1, char* A1, char* A2, int
   jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size); 
 }
 
-void ErasureCodeJerasureCLMSR::get_A1_fromB1B2(char* A1, char* B1, char* B2,  int size)
+void ErasureCodeJerasureCLMSR_GPU::get_A1_fromB1B2(char* A1, char* B1, char* B2,  int size)
 {
   int gamma_square = galois_single_multiply(gamma, gamma, w);
   int gamma_det_inv = galois_single_divide(1, 1 ^ (gamma_square), w);
@@ -1920,7 +1371,7 @@ void ErasureCodeJerasureCLMSR::get_A1_fromB1B2(char* A1, char* B1, char* B2,  in
 
 }
 
-void ErasureCodeJerasureCLMSR::jerasure_matrix_dotprod_substripe(int k, int w, int *matrix_row,
+void ErasureCodeJerasureCLMSR_GPU::jerasure_matrix_dotprod_substripe(int k, int w, int *matrix_row,
                           int *src_ids, int dest_id,
                           char **data_ptrs, char **coding_ptrs, int z, int ss_size)
 {
@@ -1983,7 +1434,7 @@ void ErasureCodeJerasureCLMSR::jerasure_matrix_dotprod_substripe(int k, int w, i
   //printf("jerasure_matrix_dotprod_substripe: exiting\n");
 }
 
-int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int w, int *matrix, int row_k_ones, int *erasures,
+int ErasureCodeJerasureCLMSR_GPU::jerasure_matrix_decode_substripe(int k, int m, int w, int *matrix, int row_k_ones, int *erasures,
                           char **data_ptrs, char **coding_ptrs, int z, int ss_size)
 {
   int i, edd, lastdrive;

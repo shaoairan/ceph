@@ -37,6 +37,7 @@ int ErasureCodePluginJerasure::factory(const std::string& directory,
 		      ostream *ss) {
     ErasureCodeJerasure *interface;
     std::string t;
+
     if (profile.find("technique") != profile.end())
       t = profile.find("technique")->second;
     if (t == "reed_sol_van") {
@@ -55,6 +56,10 @@ int ErasureCodePluginJerasure::factory(const std::string& directory,
       interface = new ErasureCodeJerasureLiber8tion();
     } else if(t == "cl_msr"){
        interface = new ErasureCodeJerasureCLMSR();
+       std::cout << "=======csr chosen=======\n";
+    } else if(t == "cl_msr_gpu"){
+       interface = new ErasureCodeJerasureCLMSR_GPU();
+       std::cout << "=======cl_msr_gpu chosen=======\n";
     } else {
       derr << "technique=" << t << " is not a valid coding technique. "
 	   << " Choose one of the following: "
