@@ -6,8 +6,8 @@
 /*
  ============================================================================
  Name        : cudaTest.cu
- Author      : unlockingc
- Version     : 1.0
+ Author      :
+ Version     :
  Copyright   : Your copyright notice
  Description : CUDA compute reciprocals
  ============================================================================
