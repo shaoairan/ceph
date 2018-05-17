@@ -546,6 +546,8 @@ private:
   int decode_layered(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size);
   int repair_lost_chunks(map<int,char*> &repaired_data, set<int> &aloof_nodes,
                           map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind);
+  int repair_lost_chunks_gpu(map<int,char*> &repaired_data, set<int> &aloof_nodes,
+                          map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind);
   void decode_erasures(int* erasure_locations, int z, int* z_vec,
                             char** data_ptrs, char** code_ptrs, int ss_size, char** B_buf);
 

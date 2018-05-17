@@ -5,7 +5,7 @@
 #include "osd/osd_types.h"
 #include <sstream>
 #include "math.h"
-#include "gpu/mylibrary.h"
+#include "gpu/clmsr_gpu.h"
 extern "C" {
 #include "jerasure.h"
 #include "reed_sol.h"
@@ -794,9 +794,11 @@ int ErasureCodeJerasureCLMSR_GPU::repair(const set<int> &want_to_read,
 
   assert(helper_data.size()+aloof_nodes.size()+repaired_data.size() == (unsigned) q*t);
   
+  //int r = repair_lost_chunks(repaired_data, aloof_nodes,
+  //                         helper_data, repair_blocksize, repair_sub_chunks_ind);
+
   int r = repair_lost_chunks(repaired_data, aloof_nodes,
                            helper_data, repair_blocksize, repair_sub_chunks_ind);
-
   //clear buffers created for the purpose of shortening
   for(int i = k; i < k+nu; i++){
     free(helper_data[i]);
@@ -804,6 +806,18 @@ int ErasureCodeJerasureCLMSR_GPU::repair(const set<int> &want_to_read,
 
   return r;
 }
+
+
+
+int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaired_data, set<int> &aloof_nodes,
+                           map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind)
+{
+    FT(ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu);
+
+
+    return 0;
+}
+
 
 int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks(map<int,char*> &repaired_data, set<int> &aloof_nodes,
                            map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind)

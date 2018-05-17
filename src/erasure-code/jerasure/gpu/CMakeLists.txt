@@ -23,4 +23,4 @@ endif()
 
 #set(CUDA_SEPARABLE_COMPILATION ON)
 
-cuda_add_library(cephCudaLibTest SHARED mylibrary.cu mylibrary.h)
+cuda_add_library(cephCudaLibTest SHARED clmsr_gpu.cu clmsr_gpu.h)
