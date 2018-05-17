@@ -814,7 +814,7 @@ int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaire
 {
     FT(ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu);
 
-
+//sadasd
     return 0;
 }
 
