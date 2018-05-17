@@ -63,7 +63,7 @@ void initialize(float *data, unsigned size)
 
 int docal()
 {
-    std::cout << "Glad to see I'm here in cuda.so->clmsr_gpu.cu \n";
+    std::cout << "Glad to see I'm here in cuda.so \n";
     static const int WORK_SIZE = 65530;
     float *data = new float[WORK_SIZE];
 
@@ -96,7 +96,3 @@ static void CheckCudaErrorAux (const char *file, unsigned line, const char *stat
     std::cerr << statement<<" returned " << cudaGetErrorString(err) << "("<<err<< ") at "<<file<<":"<<line << std::endl;
     exit (1);
 }
-
-
-
-
