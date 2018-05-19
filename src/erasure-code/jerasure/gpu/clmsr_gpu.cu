@@ -1,4 +1,4 @@
-#include "mylibrary.h"
+#include "clmsr_gpu.h"
 
 #include <iostream>
 #include <numeric>
@@ -13,10 +13,45 @@
  ============================================================================
  */
 
+using namespace std;
+
+#define FT(A) FunctionTest4 printFunctionName(#A)
+
+class FunctionTest4
+{
+  static int tabs;
+  std::string a;
+  public:
+    FunctionTest4( std::string a_ ):a(a_)
+    {
+      
+      for( int i = 0; i < tabs; i ++ )
+      {
+          printf("\t");
+      }
+      std::cout << "entering:: " << a << "\n";
+      tabs ++;
+    }
+
+    ~FunctionTest4()
+    {
+      tabs --;
+      for( int i = 0; i < tabs; i ++ )
+      {
+          printf("\t");
+      }
+      std::cout << "leave:: " << a << "\n";
+    }
+};
+
+int FunctionTest4::tabs = 4;
 
 
-static void CheckCudaErrorAux (const char *, unsigned, const char *, cudaError_t);
+static bool CheckCudaErrorAux (const char *, unsigned, const char *, cudaError_t);
 #define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
+
+bool ClmsrGpu::statusMark = true;
+
 
 /**
  * CUDA kernel that computes reciprocal values for a given vector
@@ -89,14 +124,104 @@ int docal()
  * Check the return value of the CUDA runtime API call and exit
  * the application if the call has failed.
  */
-static void CheckCudaErrorAux (const char *file, unsigned line, const char *statement, cudaError_t err)
+static bool CheckCudaErrorAux (const char *file, unsigned line, const char *statement, cudaError_t err)
 {
     if (err == cudaSuccess)
-        return;
-    std::cerr << statement<<" returned " << cudaGetErrorString(err) << "("<<err<< ") at "<<file<<":"<<line << std::endl;
-    exit (1);
+        return true;
+    else
+    {
+        std::cerr << statement<<" returned " << cudaGetErrorString(err) << "("<<err<< ") at "<<file<<":"<<line << std::endl;
+        ClmsrGpu::statusMark = false;
+        exit(1);
+    }
+}
+
+ClmsrProfile::ClmsrProfile( int q_,int t_,int d_,int sub_chunk_no_,\
+        int k_,int m_,int w_,int nu_,\
+        int gamma_,int* matrix_, \
+        unsigned chunkSize_, unsigned subChunkSize_, MdsType mdsType_ ):\
+        q(q_),t(t_),d(d_),\
+        k(k_),m(m_),w(w_),nu(nu_),\
+        gamma(gamma_),matrix(matrix_),\
+        chunkSize(chunkSize_), subChunkSize(subChunkSize_), mdsType(mdsType_),sub_chunk_no(sub_chunk_no_)
+        {
+        }
+
+
+
+ClmsrGpu::ClmsrGpu( map<int,char*> &repaired_data_, set<int> &aloof_nodes_, map<int, char*> &helper_data_, \
+        int repair_blocksize_, map<int,int> &repair_sub_chunks_ind_, ClmsrProfile clmsrProfile_ ) : \
+     repaired_data(repaired_data_), aloof_nodes(aloof_nodes_), helper_data(helper_data_),\
+     repair_blocksize(repair_blocksize_),repair_sub_chunks_ind(repair_sub_chunks_ind_), clmsrProfile(clmsrProfile_)
+     {
+        printf("happy should I?");
+        //todo: init B_Buf and pin it
+
+        //done: pin memory
+        pinMemory(repaired_data, clmsrProfile.chunkSize );
+        pinMemory(helper_data, clmsrProfile.subChunkSize*repair_sub_chunks_ind.size() );
+
+        //done: get GpuInfo
+
+        //todo init matrix and put it in the shared memory;
+        
+     }
+
+ClmsrGpu::~ClmsrGpu()
+{
+    //todo: free B_buf and unpin it
+
+    //done: unpinmemory
+    unpinMemory(repaired_data );
+    unpinMemory(helper_data );
+
 }
 
 
+inline void ClmsrGpu::pinMemory( map<int,char*> map, int size )
+{
+    for( std::map<int,char*>::iterator iter = map.begin(); iter != map.end(); iter++) {
+        //todo:flags
+        CUDA_CHECK_RETURN(cudaHostRegister(iter->second, size, cudaHostRegisterPortable));
+    }
+}
 
+inline void ClmsrGpu::unpinMemory( map<int,char*> map )
+{
+    for(std::map<int,char*>::iterator iter = map.begin(); iter != map.end(); iter++) {
+        CUDA_CHECK_RETURN(cudaHostUnregister(iter->second));
+    }
+}
 
+DeviceInfo::DeviceInfo()
+{
+    CUDA_CHECK_RETURN(cudaGetDeviceCount(&deviceCount));
+    device = new cudaDeviceProp[deviceCount];
+    for( int i = 0; i < deviceCount; i ++ )
+    {
+        CUDA_CHECK_RETURN(cudaSetDevice(i));
+        CUDA_CHECK_RETURN(cudaGetDeviceProperties(&(device[i]),i));
+    }
+}
+
+DeviceInfo::~DeviceInfo()
+{
+    free(device);
+}
+
+SingleGpuRoute::SingleGpuRoute( int deviceId_, ClmsrGpu* ClmsrGpuP_, int subChunkStart_, int subChunkSize_ ): \
+clmsrGpuP(ClmsrGpuP_), deviceId(deviceId_),deviceProp(&((ClmsrGpuP_->deviceInfo).device[deviceId_])),\
+subChunkStart(subChunkStart_), subChunkSize(subChunkSize_)
+{
+    CUDA_CHECK_RETURN(cudaSetDevice(deviceId));
+}
+
+void SingleGpuRoute::init()
+{
+    FT(SingleGpuRoute::init);
+}
+
+void SingleGpuRoute::doRepair()
+{
+    FT(SingleGpuRoute::doRepair);
+}

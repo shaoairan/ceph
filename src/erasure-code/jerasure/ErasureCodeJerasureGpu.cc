@@ -797,25 +797,14 @@ int ErasureCodeJerasureCLMSR_GPU::repair(const set<int> &want_to_read,
   //int r = repair_lost_chunks(repaired_data, aloof_nodes,
   //                         helper_data, repair_blocksize, repair_sub_chunks_ind);
 
-  int r = repair_lost_chunks(repaired_data, aloof_nodes,
-                           helper_data, repair_blocksize, repair_sub_chunks_ind);
+  int r = repair_lost_chunks_gpu(repaired_data, aloof_nodes,
+                           helper_data, repair_blocksize, repair_sub_chunks_ind );
   //clear buffers created for the purpose of shortening
   for(int i = k; i < k+nu; i++){
     free(helper_data[i]);
   }
 
   return r;
-}
-
-
-
-int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaired_data, set<int> &aloof_nodes,
-                           map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind)
-{
-    FT(ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu);
-
-//sadasd
-    return 0;
 }
 
 
@@ -1551,4 +1540,30 @@ int ErasureCodeJerasureCLMSR_GPU::jerasure_matrix_decode_substripe(int k, int m,
   if (decoding_matrix != NULL) free(decoding_matrix);
 
   return 0;
+}
+
+
+int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaired_data, set<int> &aloof_nodes,
+                           map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind)
+{
+    FT(ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu);
+
+
+    unsigned subChunkSize = repair_blocksize/repair_sub_chunks_ind.size();
+    unsigned chunkSize = sub_chunk_no*subChunkSize;
+
+    ClmsrProfile clmsrProfile( q,t,d,sub_chunk_no,\
+    k,m,w,nu,\
+    gamma,matrix, \
+    chunkSize, subChunkSize, (MdsType) mds_block );
+
+//sadasd
+    printf("I fuck all this stupid\n");
+    ClmsrGpu clmsrGpu(repaired_data, aloof_nodes,\
+                           helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrProfile);
+    SingleGpuRoute singleGpuRoute(0, &clmsrGpu, 0, clmsrProfile.subChunkSize);
+    singleGpuRoute.init();
+    singleGpuRoute.doRepair();
+
+    return 0;
 }
