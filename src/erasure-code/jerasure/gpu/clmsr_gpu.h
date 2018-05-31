@@ -8,8 +8,13 @@
 #include<cstdlib>
 #include<cstdio>
 #include <cuda_runtime.h>
+#include <helper_cuda.h>
 
 using namespace std;
+
+#define STREAM_NUM 3
+#define EVENT_NUM  3
+
 
 extern "C" {
 int docal();
@@ -78,6 +83,7 @@ public:
 	int repair_blocksize;
 	map<int,int> &repair_sub_chunks_ind;
 	char** B_buf;
+	int *matrix_gpu;
 
 	static bool statusMark;
 	ClmsrProfile clmsrProfile;
@@ -96,18 +102,36 @@ private:
 
 class SingleGpuRoute
 {
-	ClmsrGpu* clmsrGpuP;
-	int deviceId;
-	cudaDeviceProp *deviceProp;
-	cudaStream_t streams[3];//0: in, 1: cal, 3 out
-	cudaEvent_t event[3];
-	int subChunkStart;
-	int subChunkSize;
 public:
-	SingleGpuRoute( int deviceId_, ClmsrGpu* ClmsrGpuP_, int subChunkStart_, int subChunkSize_ );
+	ClmsrGpu* clmsrGpuP;
+	ClmsrProfile* clmsrProfileP;
+	int deviceId;
+	cudaDeviceProp &deviceProp;
+	//complie debug
+	cudaStream_t streams[STREAM_NUM];//0: in, 1: cal, 3 out
+	cudaEvent_t events[EVENT_NUM];
+	int subSubChunkStart;
+	int subSubChunkSize;
 
+	int pieceKernelGridSize;
+	int pieceKernelBlockSize;
+
+	int planeKernelGridSize;
+	int planeKernelBlockSize;
+	
+private:
+	int pieceCount;
+	int __getPieceSize( int i );
+
+
+public:
+	SingleGpuRoute( int deviceId_, ClmsrGpu* ClmsrGpuP_, int subSubChunkStart_, int subSubChunkSize_ );
+	~SingleGpuRoute();
+	
 	void init();
-	void doRepair();
+	int doRepair();
+	int doDecode();
+	void deinit();
 };
 
 #endif

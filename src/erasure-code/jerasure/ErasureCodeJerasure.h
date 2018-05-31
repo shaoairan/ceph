@@ -572,6 +572,8 @@ private:
   void jerasure_matrix_dotprod_substripe(int k, int w, int *matrix_row,
                           int *src_ids, int dest_id,
                           char **data_ptrs, char **coding_ptrs, int z, int ss_size);
+
+  int ErasureCodeJerasureCLMSR_GPU::init_gf_log_gpu();
 };
 
 #endif

@@ -1369,8 +1369,10 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
   int count_retrieved_sub_chunks = 0;
   int num_erased = 0;
 
-  //dout(10) << " lost_nodes " << repaired_data << " aloof_nodes " << aloof_nodes << " helper nodes " << helper_data << "repair_blockssize" << repair_blocksize<< dendl;
 
+  //cal the order
+  //dout(10) << " lost_nodes " << repaired_data << " aloof_nodes " << aloof_nodes << " helper nodes " << helper_data << "repair_blockssize" << repair_blocksize<< dendl;
+  // z_vec : z's q0,q1,q2,q3,q4....qt
   for(map<int,int>::iterator i = repair_sub_chunks_ind.begin();
       i != repair_sub_chunks_ind.end(); ++i){
     get_plane_vector(i->second, z_vec);
@@ -2043,7 +2045,7 @@ int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int
       free(dm_ids);
       free(decoding_matrix);
       return -1;
- }
+    }
   }
 
   /* Decode the data drives.

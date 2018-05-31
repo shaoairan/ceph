@@ -19,7 +19,7 @@ endif()
 
 #set(CUDA_SEPARABLE_COMPILATION ON)
 
-add_library(cephCudaLibTest STATIC clmsr_gpu.cu clmsr_gpu.h)
+add_library(cephCudaLibTest STATIC clmsr_gpu.cu clmsr_gpu.h gf_base.cu jerasure_base.cu )
 
 target_compile_features(cephCudaLibTest PUBLIC cxx_std_11)
  

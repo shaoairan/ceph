@@ -3,6 +3,9 @@
 #include <iostream>
 #include <numeric>
 #include <stdlib.h>
+#include <stdio.h>
+
+
 /*
  ============================================================================
  Name        : cudaTest.cu
