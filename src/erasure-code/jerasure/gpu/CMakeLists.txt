@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.9.6)
-project(cephCudaLibTest CXX CUDA)
+project(cephCudaLibTest C CUDA)
 
 set(CMAKE_CXX_STANDARD 11)
 
@@ -10,7 +10,7 @@ if (UNIX)
         message(FATAL_ERROR "System not supported, try linux!")
     else()
         message(STATUS "========================marky: adding nvcc flags...==========================")
-        list(APPEND CMAKE_CXX_FLAGS " -O2 -mssse3")
+        list(APPEND CMAKE_CXX_FLAGS " -O2 -mssse3 -fno-operator-names")
         list(APPEND CMAKE_CUDA_FLAGS " -lineinfo -arch=sm_50 --compiler-options -O2 -DVERBOSE")
     endif()
 else()
@@ -20,6 +20,8 @@ endif()
 #set(CUDA_SEPARABLE_COMPILATION ON)
 
 add_library(cephCudaLibTest STATIC clmsr_gpu.cu clmsr_gpu.h gf_base.cu jerasure_base.cu )
+
+target_link_libraries(cephCudaLibTest Jerasure gf_complete)
 
 target_compile_features(cephCudaLibTest PUBLIC cxx_std_11)
  

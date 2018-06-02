@@ -129,7 +129,8 @@ public:
 	~SingleGpuRoute();
 	
 	void init();
-	int doRepair();
+	int doRepair(map<int,char*> &repaired_data, set<int> &aloof_nodes,
+                           map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind, char** B_buf );
 	int doDecode();
 	void deinit();
 };

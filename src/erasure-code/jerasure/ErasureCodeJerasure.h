@@ -573,7 +573,7 @@ private:
                           int *src_ids, int dest_id,
                           char **data_ptrs, char **coding_ptrs, int z, int ss_size);
 
-  int ErasureCodeJerasureCLMSR_GPU::init_gf_log_gpu();
+  //int init_gf_log_w8_gpu( cudaStream_t stream );
 };
 
 #endif

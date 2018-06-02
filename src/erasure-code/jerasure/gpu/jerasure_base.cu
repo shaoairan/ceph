@@ -11,7 +11,6 @@ int erasures_to_erased(int k, int m, int *erasures, int *erased )
 
 	int td;
 	int t_non_erased;
-	int *erased;
 	int i;
 
 	td = k+m;
@@ -63,7 +62,7 @@ int full_erased_list_coding( int k, int m, int * erasure_loc_coding, int * erase
 	{
 		if( erased[i + k] )
 		{
-			erasure_loc_data[coding_loc ++] = i + k;
+			erasure_loc_coding[coding_loc ++] = i + k;
 		}
 	}
 
