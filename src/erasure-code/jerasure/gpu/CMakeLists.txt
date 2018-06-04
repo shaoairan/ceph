@@ -19,9 +19,12 @@ endif()
 
 #set(CUDA_SEPARABLE_COMPILATION ON)
 
-add_library(cephCudaLibTest STATIC clmsr_gpu.cu clmsr_gpu.h gf_base.cu jerasure_base.cu )
+add_library(gf_bridge STATIC gf_bridge.c gf_bridge.h )
+target_link_libraries(gf_bridge gf_complete)
 
-target_link_libraries(cephCudaLibTest Jerasure gf_complete)
+add_library(cephCudaLibTest STATIC clmsr_gpu.cu clmsr_gpu.h gf_base.cu jerasure_base.cu )
+add_dependencies(cephCudaLibTest gf_bridge)
+target_link_libraries(cephCudaLibTest Jerasure gf_bridge)
 
 target_compile_features(cephCudaLibTest PUBLIC cxx_std_11)
  

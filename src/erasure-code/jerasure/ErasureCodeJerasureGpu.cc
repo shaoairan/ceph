@@ -17,6 +17,8 @@ extern "C" {
 //
 // ErasureCodeJerasureCLMSR_GPU
 //
+#define debughou(fmt, arg...)          printf((const char*)fmt, ##arg)
+
 #define LARGEST_VECTOR_WORDSIZE 16
 
 #define dout_context g_ceph_context
@@ -1568,6 +1570,19 @@ int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaire
 
     unsigned subChunkSize = repair_blocksize/repair_sub_chunks_ind.size();
     unsigned chunkSize = sub_chunk_no*subChunkSize;
+
+    debughou("matrix before: \n========================================\n");
+
+    for( int i = 0; i < m; i ++ )
+    {
+        for( int j = 0; j < k; j ++ )
+        {
+          debughou( "%d, ", matrix[i*k+j] );
+        }
+        debughou("\n");
+    }
+
+    debughou("=====================================\n");
 
     ClmsrProfile clmsrProfile( q,t,d,sub_chunk_no,\
     k,m,w,nu,\

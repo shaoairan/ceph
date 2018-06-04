@@ -1,11 +1,17 @@
 #include "gf_base.h"
 
-int erasures_to_erased(int k, int m, int *erasures, int *erased )
+#define debughou(fmt, arg...)          printf((const char*)fmt, ##arg)
+
+int erasures_to_erased_gpu(int k, int m, int *erasures, int *erased )
 { 
+
+	debughou( "fuck I am in erasures_to_erased_gpu!!!!!!!!!!!!!!!!\n" );
+
 	if( erased == NULL || erasures == NULL ) 
 	{
 		goto erasures_to_erased_fail;
 	}
+
 
 	memset(erased, 0, sizeof(int)*(k + m));
 
@@ -13,10 +19,18 @@ int erasures_to_erased(int k, int m, int *erasures, int *erased )
 	int t_non_erased;
 	int i;
 
+	debughou("erasures_location is: ==================================\n");
+	for (i = 0; erasures[i] != -1; i++) {
+		debughou("%d,", erasures[i] );
+	}	
+	debughou("\n");
+
+
+
 	td = k+m;
 	t_non_erased = td;
 
-	for (i = 0; i < td; i++) erased[i] = 0;
+	//for (i = 0; i < td; i++) erased[i] = 0;
 
 	for (i = 0; erasures[i] != -1; i++) {
 		if (erased[erasures[i]] == 0) {
@@ -32,7 +46,7 @@ erasures_to_erased_succeed:
 	return 0;
 
 erasures_to_erased_fail:
-	return 1;
+	return -1;
 }
 
 int full_erased_list_data( int k, int m, int * erasure_loc_data, int * erased )

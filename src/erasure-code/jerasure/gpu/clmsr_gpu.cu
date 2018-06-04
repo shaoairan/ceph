@@ -4,7 +4,7 @@
 #include <numeric>
 #include <stdlib.h>
 #include <stdio.h>
-#include <assert.h>
+#include "assert.h"
 #include "jerasure_base.h"
 #include "gf_base.h"
 #include "math.h"
@@ -32,9 +32,14 @@ extern "C" {
 #define GAMMA 5
 #define GAMMA_INVERSE 6
 
-#define talloc(type, num) (type *) malloc(sizeof(type)*(num))
+#define debughouTab(num, fmt, arg...)     for(int o = 0; o < num; o ++) printf("\t");     printf((const char*)fmt, ##arg)
+
 
 using namespace std;
+
+//#define assert( a ) if((a) == false ) cout << "assert" <<  #a << " failed!\n", return -1
+
+
 
 #define FT(A) FunctionTest4 printFunctionName(#A)
 
@@ -180,7 +185,7 @@ ClmsrGpu::ClmsrGpu( map<int,char*> &repaired_data_, set<int> &aloof_nodes_, map<
         //done: init B_Buf and pin it
         CUDA_CHECK_RETURN(cudaHostAlloc(&B_buf, clmsrProfile.q*clmsrProfile.t*sizeof(char*), cudaHostAllocPortable));
 
-        assert(B_buf);
+        assert(B_buf != NULL);
 
         for(int i = 0; i < clmsrProfile.q*clmsrProfile.t; i++)
         {
@@ -188,7 +193,7 @@ ClmsrGpu::ClmsrGpu( map<int,char*> &repaired_data_, set<int> &aloof_nodes_, map<
             if(B_buf[i]==NULL)
             {
                 CUDA_CHECK_RETURN(cudaHostAlloc(&B_buf[i], (size_t)(clmsrProfile.subChunkSize*clmsrProfile.sub_chunk_no), cudaHostAllocPortable));
-                assert(B_buf[i]);
+                assert(B_buf[i]!= NULL);
             }
         }
 
@@ -275,6 +280,10 @@ subSubChunkStart(subSubChunkStart_), subSubChunkSize(subSubChunkSize_), clmsrPro
     if(float(deviceProp.totalGlobalMem) < float(layerSize) * 4.0 + clmsrProfileP->k*clmsrProfileP->m*sizeof(int) )
     {
         pieceCount = layerSize*4/deviceProp.totalGlobalMem + 1;
+    }
+    else
+    {
+        pieceCount = 1;
     }
 
     init();
@@ -583,7 +592,44 @@ __global__ void planeKernel( const int k, int nu, const int m, int w, int q, int
 int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nodes,
                            map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind, char** B_buf )
 {
+
+    assert( 1 == 0 );
+    cout << "\n\n\nsurprise~\n\n\n" << endl;
+
+    debughouTab(1, "repaired_data:**************\n");
+    for( map<int,char*>::iterator it = repaired_data.begin(); it != repaired_data.end(); it ++ )
+    {
+        debughouTab(1, "%d,", it->first );
+    }
+    debughouTab(1, "\n**************\n");
+
+    debughouTab(1, "helper_data:**************\n");
+    for( map<int,char*>::iterator it = helper_data.begin(); it != helper_data.end(); it ++ )
+    {
+        debughouTab(1, "%d,", it->first);
+    }
+    debughouTab(1, "\n**************\n");
+
+    debughouTab(1, "aloof_nodes:**************\n");
+    for( set<int>::iterator it = aloof_nodes.begin(); it != aloof_nodes.end(); it ++ )
+    {
+        debughouTab(1, "%d,", *it);
+    }
+    debughouTab(1, "\n**************\n");
+
+
+    debughouTab(1, "repair_sub_chunks_ind:**************\n");
+    for( map<int,int>::iterator it = repair_sub_chunks_ind.begin(); it != repair_sub_chunks_ind.end(); it ++ )
+    {
+        debughouTab(1, "%d: %d;\t", it->first, it->second);
+    }
+    debughouTab(1, "\n**************\n");
+
     FT(SingleGpuRoute::doRepair);
+    printf(" k: %d\t nu: %d\t m: %d\n",clmsrProfileP->k, clmsrProfileP->nu, clmsrProfileP->m );
+    const int k = clmsrProfileP->k + clmsrProfileP->nu;
+    const int m = clmsrProfileP->m;
+
     const int sub_chunksize = clmsrProfileP->subChunkSize;
     const int q = clmsrProfileP->q, t = clmsrProfileP->t;
     const int qt = q * t;
@@ -611,16 +657,16 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
     int erased_data_size = 0;
     int erased_coding_size = 0;
     
-    bool init_matrix;
+    bool init_matrix = false;
 
-    dm_ids = talloc(int, clmsrProfileP->k);
-    decode_matrix = talloc(int, clmsrProfileP->k*clmsrProfileP->k);
-    erased = talloc(int, clmsrProfileP->k + clmsrProfileP->m);
+    dm_ids = talloc(int, k);
+    decode_matrix = talloc(int, k*k);
+    erased = talloc(int, k + m);
     erasure_loc_data = talloc(int, qt);
     erasure_loc_coding = talloc(int, qt);
 
-    CUDA_CHECK_RETURN(cudaMalloc(&decode_matrix_gpu, clmsrProfileP->k * clmsrProfileP->k *sizeof(int)));
-    CUDA_CHECK_RETURN(cudaMalloc(&dm_ids_gpu, clmsrProfileP->k * sizeof(int)));
+    CUDA_CHECK_RETURN(cudaMalloc(&decode_matrix_gpu, k * k *sizeof(int)));
+    CUDA_CHECK_RETURN(cudaMalloc(&dm_ids_gpu, k * sizeof(int)));
     CUDA_CHECK_RETURN(cudaMalloc(&erasure_loc_data_gpu, qt));
     CUDA_CHECK_RETURN(cudaMalloc(&erasure_loc_coding_gpu, qt));
 
@@ -654,9 +700,15 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
         }
         assert(order>0);
         ordered_planes[order].insert(i->second);
-        //repair_plane_to_ind[i->second] = i->first;
+        repair_plane_to_ind[i->second] = i->first;
     }
 
+    debughouTab(1, "repair_plane_to_ind:**************\n");
+    for( map<int,int>::iterator it = repair_plane_to_ind.begin(); it != repair_plane_to_ind.end(); it ++ )
+    {
+      debughouTab(1, "%d: %d;\t", it->first, it->second);
+    }
+    debughouTab(1, "\n**************\n");
 
 
 
@@ -676,9 +728,21 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
             {
                 get_plane_vector(q,t,*z, z_vec);
 
+                debughouTab(1, "z_vec**************************\n");
+
+                for( int u = 0; u < t; u ++ )
+                {
+                    debughouTab(1, "%d", z_vec[u]);
+                }
+                debughouTab(1, "\n**************************\n");
+
                 int pieceOffset = 0;
                 int pieceSize = 0;
                 init_matrix = false;
+
+                //printf("get set<int>::iterator z=ordered_planes[order].begin(); z != ordered_planes[order].end()=========================================\n");
+
+                printf("pieceCount %d \n", pieceCount );
 
                 for( int pi = 0; pi < pieceCount; pi ++ )
                 {
@@ -690,15 +754,19 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                         for(x = 0; x < q; x++)
                         {
 
+
                             node_xy = y*q + x;//todo: check pow is right
                             z_sw = (*z) + (x - z_vec[y])*(int)(pow(q,t-1-y));
                             node_sw = y*q + z_vec[y];
+
+                            debughouTab(1, "node_xy: %d\t node_sw: %d\t z_sw: %d\t q: %d\tx: %d\t y: %d\n", node_xy,node_sw,z_sw,q,x,y);
 
                             if( (repaired_data.find(node_xy) != repaired_data.end()) )
                             {//case of erasure, aloof node can't get a B.
 
                                 erasure_locations[num_erased] = node_xy;
                                 num_erased++;
+
                                 if( repaired_data.find(node_sw) != repaired_data.end() )
                                 {//node_sw must be a helper
                                     if(x > z_vec[y])//todo: check if is right
@@ -737,6 +805,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                                 //todo: 这里的判断条件不太对啊， 没有判断你是一个helper 但你要的A2在erasred里的情况
                                 if(repair_plane_to_ind.find(z_sw) == repair_plane_to_ind.end())
                                 {
+                                    debughouTab(3, "put node_xy: %d in erasures for z_sw: %d lost\n", node_xy, z_sw);
                                     erasure_locations[num_erased] = node_xy;
                                     //dout(10)<< num_erased<< "'th erasure of node " << node_xy << " = (" << x << "," << y << ")" << dendl;
                                     num_erased++;
@@ -807,26 +876,42 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                     //we obtained all the needed B's
                     assert(num_erased <= m);
                     
+                    int ppp;
 
+                    debughouTab(4, "erasures_location out is: ==================================\n");
+                    for (ppp = 0; erasure_locations[ppp] != -1; ppp++) {
+                        debughouTab(4,"%d,", erasure_locations[ppp] );
+                    }   
+                    debughouTab(0,"\n");
+
+                    debughouTab( 4 , "num_erased: %d\t m: %d\t, erasure_locations[num_erased]: %d\n", num_erased, m, erasure_locations[num_erased]  );
 
                     if(!init_matrix)
                     {
                         init_matrix = true;
                         
-                        erasures_to_erased (clmsrProfileP->k, clmsrProfileP->m, erasure_locations, erased );
+                        if(erasures_to_erased_gpu (k, m, erasure_locations, erased ) < 0 )
+                        {
+                            printf("haha, you get an error when calling erasures_to_erased_gpu!\n");
+                            return -1;
+                        }
+                        //erased = jerasure_erasures_to_erased (k, m, erasure_locations );
 
-                        if (jerasure_make_decoding_matrix(clmsrProfileP->k, clmsrProfileP->m, clmsrProfileP->w, clmsrProfileP->matrix, erased, decode_matrix, dm_ids) < 0) 
+                        printf("get before jerasure_make_decoding_matrix=========================================\n");
+                        if (jerasure_make_decoding_matrix(k, m, clmsrProfileP->w, clmsrProfileP->matrix, erased, decode_matrix, dm_ids) < 0) 
                         {
                           printf("Can not get decoding matrix!!!\n");
                           return -1;
                         }
+
+                        printf("get afer jerasure_make_decoding_matrix=========================================\n");
                         
-                        CUDA_CHECK_RETURN( cudaMemcpyAsync(decode_matrix_gpu, decode_matrix, clmsrProfileP->k*clmsrProfileP->k*sizeof(int), cudaMemcpyHostToDevice, streams[0]) );
-                        CUDA_CHECK_RETURN( cudaMemcpyAsync(dm_ids_gpu, dm_ids, clmsrProfileP->k*sizeof(int), cudaMemcpyHostToDevice, streams[0]) );
+                        CUDA_CHECK_RETURN( cudaMemcpyAsync(decode_matrix_gpu, decode_matrix, k*k*sizeof(int), cudaMemcpyHostToDevice, streams[0]) );
+                        CUDA_CHECK_RETURN( cudaMemcpyAsync(dm_ids_gpu, dm_ids, k*sizeof(int), cudaMemcpyHostToDevice, streams[0]) );
                         
 
-                        erased_data_size = full_erased_list_data( clmsrProfileP->k, clmsrProfileP->m, erasure_loc_data, erased );
-                        erased_coding_size = full_erased_list_data( clmsrProfileP->k, clmsrProfileP->m, erasure_loc_coding, erased );
+                        erased_data_size = full_erased_list_data( k, m, erasure_loc_data, erased );
+                        erased_coding_size = full_erased_list_coding( k, m, erasure_loc_coding, erased );
 
                         CUDA_CHECK_RETURN( cudaMemcpyAsync(erasure_loc_data_gpu, erasure_loc_data, qt*sizeof(int), cudaMemcpyHostToDevice, streams[0]) );
                         CUDA_CHECK_RETURN( cudaMemcpyAsync(erasure_loc_coding_gpu, erasure_loc_coding, qt*sizeof(int), cudaMemcpyHostToDevice, streams[0]) );
@@ -836,8 +921,8 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                     //dout(10) << "going to decode for B's in repair plane "<< *z << " at index " << repair_plane_to_ind[*z] << dendl;
                     //jerasure_matrix_decode_substripe(k+nu, m, w, matrix, 0, erasure_locations, &B_buf[0], &B_buf[k+nu], repair_plane_to_ind[*z], sub_chunksize);
                                             
-                    planeKernel<<<planeKernelGridSize,planeKernelBlockSize,(clmsrProfileP->k*clmsrProfileP->k + clmsrProfileP->k * clmsrProfileP->m)*sizeof(char),streams[1]>>>(\
-                        clmsrProfileP->k, clmsrProfileP->nu, clmsrProfileP->m, clmsrProfileP->w, q, t,\
+                    planeKernel<<<planeKernelGridSize,planeKernelBlockSize,(k*k + k * m)*sizeof(char),streams[1]>>>(\
+                        k, clmsrProfileP->nu, m, clmsrProfileP->w, q, t,\
                         clmsrGpuP->matrix_gpu, decode_matrix_gpu, dm_ids_gpu, erasure_loc_data_gpu, erased_data_size, erasure_loc_coding_gpu, erased_coding_size, planePOnGpuK, pieceSize, pieceSizeMax\
                      );//decode;
 
