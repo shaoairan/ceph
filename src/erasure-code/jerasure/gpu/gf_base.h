@@ -4,12 +4,12 @@
 #include <cuda_runtime.h>
 #include <helper_cuda.h>
 
-#define GF_FIELD_WIDTH_8_GPU 		8
-#define GF_FIELD_SIZE_8_GPU			256
-#define GF_HALF_SIZE_8_GPU			16
-#define GF_MULT_GROUP_SIZE_8_GPU	255
+#define GF_FIELD_WIDTH_8_GPU    8
+#define GF_FIELD_SIZE_8_GPU     256
+#define GF_HALF_SIZE_8_GPU      16
+#define GF_MULT_GROUP_SIZE_8_GPU  255
 
-#define get_arrs() 	static __shared__ char sh_log[GF_FIELD_SIZE_8_GPU]; static __shared__ char sh_antilog[GF_FIELD_SIZE_8_GPU*2]; static __shared__ char sh_inv[GF_FIELD_SIZE_8_GPU]
+#define get_arrs() 	static __shared__ unsigned char sh_log[GF_FIELD_SIZE_8_GPU]; static __shared__ unsigned char sh_antilog[GF_FIELD_SIZE_8_GPU*2]; static __shared__ unsigned char sh_inv[GF_FIELD_SIZE_8_GPU]
 #define init_table( threadIdx, blockDim )	load_tables(threadIdx, blockDim, sh_log, sh_antilog, sh_inv)
 
 #define galois_single_divide_gpu_logtable_w8( a, b )		(a == 0 || b == 0) ? 0 : sh_antilog[sh_log[a] - sh_log[b] + (GF_MULT_GROUP_SIZE_8_GPU)]
@@ -18,9 +18,9 @@
 #define set_gf_table() get_arrs(); init_table( threadIdx, blockDim )
 
 
-__constant__ char c_log[GF_FIELD_SIZE_8_GPU];
-__constant__ char c_antilog[GF_FIELD_SIZE_8_GPU*2];
-__constant__ char c_inv[GF_FIELD_SIZE_8_GPU];
+extern __constant__ unsigned char c_log[GF_FIELD_SIZE_8_GPU];
+extern __constant__ unsigned char c_antilog[GF_FIELD_SIZE_8_GPU*2];
+extern __constant__ unsigned char c_inv[GF_FIELD_SIZE_8_GPU];
 
 /*__device__ inline void load_tables(uint3 threadIdx, const dim3 blockDim, char* sh_log, char* sh_antilog, char* sh_inv );
 
@@ -47,7 +47,7 @@ __device__ inline char galois_single_inverse_gpu_logtable_w8 (char a)
   return sh_inv[a];
 }*/
 
-__device__ inline void load_tables(uint3 threadIdx, const dim3 blockDim, char* sh_log, char*  sh_antilog, char* sh_inv ) {
+__device__ inline void load_tables(uint3 threadIdx, const dim3 blockDim, unsigned char* sh_log, unsigned char*  sh_antilog, unsigned char* sh_inv ) {
   /* Fully arbitrary routine for any blocksize and fetch size to load
    * the log and ilog tables into shared memory.
    */
@@ -72,6 +72,22 @@ __device__ inline void load_tables(uint3 threadIdx, const dim3 blockDim, char* s
     
 }
 
-int copy_log_to_gpu_w8( void* log, void* anti_log, void* inv, cudaStream_t stream = 0 );
+__device__ inline void print_table( int idx, unsigned char* sh_log, unsigned char*  sh_antilog, unsigned char* sh_inv )
+{
+  if( idx == 0 )
+  {
+      for( int i = 0; i < 256; i ++ )
+        {
+            printf( "&====: %d: %d----%d\n", i, sh_log[i], sh_antilog[i]);
+        }
+
+        for( int i = 256; i < 256*2; i ++ )
+        {
+            printf( "&==&==: %d: %d\n", i, sh_antilog[i] );            
+        }
+  }
+}
+
+int copy_log_to_gpu_w8( cudaStream_t stream = 0 );
 
 #endif

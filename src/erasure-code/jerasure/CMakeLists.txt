@@ -1,5 +1,6 @@
 # jerasure plugin
 # as ErasureCodeJerasureGpu.cc include clmsr_gpu.h, this is necessary.
+
 include_directories(
         /usr/local/cuda/include
         gpu/include
@@ -8,6 +9,8 @@ include_directories(
 link_directories(
         /usr/local/cuda/lib64
 )
+
+add_subdirectory(gpu)
 
 set(jerasure_utils_src
   ErasureCodePluginJerasure.cc
@@ -101,9 +104,9 @@ set(ec_jerasure_objs
   $<TARGET_OBJECTS:jerasure_objs>
   $<TARGET_OBJECTS:jerasure_utils>
   $<TARGET_OBJECTS:erasure_code_objs>
+  $<TARGET_OBJECTS:gf_bridge>
   )
 
-add_subdirectory(gpu)
 MESSAGE(STATIC "===========marky This is new==========================")
 #FIND_LIBRARY(gpuTest libcephCudaLibTest.a ${PROJECT_BINARY_DIR}/lib)
 
@@ -115,12 +118,11 @@ set(gpuTest
 
 add_library(ec_jerasure SHARED ${ec_jerasure_objs})
 
-add_dependencies(ec_jerasure gpuTest)
-
 set_target_properties(ec_jerasure PROPERTIES
   INSTALL_RPATH "")
 
 
+add_dependencies(ec_jerasure gpuTest)
 
 target_link_libraries(ec_jerasure json_spirit ${gpuTest} ${EXTRALIBS} )
 install(TARGETS ec_jerasure DESTINATION ${erasure_plugin_dir})

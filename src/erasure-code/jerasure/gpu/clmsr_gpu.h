@@ -133,6 +133,7 @@ public:
                            map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind, char** B_buf );
 	int doDecode();
 	void deinit();
+	int init_gf_log_w8_gpu( cudaStream_t stream = 0 );
 };
 
 #endif

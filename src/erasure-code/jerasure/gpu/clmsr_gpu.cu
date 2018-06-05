@@ -298,8 +298,10 @@ SingleGpuRoute::~SingleGpuRoute()
 
 int SingleGpuRoute::__getPieceSize( int i )
 {
+    //error!!!!
     //todo: think about thread
     int baseSize = subSubChunkSize%pieceCount == 0;
+
 
     if( subSubChunkSize%pieceCount == 0 )
     {
@@ -351,6 +353,11 @@ __global__ void pieceKernelGamma( char gamma, char** dataPt,  int nodeId, int ca
 
     char tmatrix[4];
 
+    if( idx == 0 )
+    {
+        debughouTab(3,"\n\n=============\ndataSize: %d\tpatchSize: %d\tw: %d\tnodeId: %d\t\n===========\n\n", dataSize,patchSize,w,nodeId);
+    }
+
 
     char* A[2];
     char* dest[2];
@@ -396,15 +403,19 @@ __global__ void pieceKernelGamma( char gamma, char** dataPt,  int nodeId, int ca
             break;
 
         default:
-            printf("error Case\n");
+            printf("error Case %d\n", calType);
+            __threadfence_system();
+            asm("trap;");
             break;
     }
 
 
     //jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, A, dest, size);
     //jerasure_matrix_dotprod(2, w, &tmatrix[2], NULL, 3, A, dest, size);
+
     for( int i = idx; i < dataSize; i += threadsNum )
     {
+        //mark = 0;
         //todo: optmize a*1 case;
         dest[0][i] = galois_single_multiply_gpu_logtable_w8(A[0][i], tmatrix[0]) ^ galois_single_multiply_gpu_logtable_w8(A[1][i], tmatrix[1]);
         dest[1][i] = galois_single_multiply_gpu_logtable_w8(A[0][i], tmatrix[2]) ^ galois_single_multiply_gpu_logtable_w8(A[1][i], tmatrix[3]);
@@ -418,6 +429,12 @@ __global__ void pieceKernel( char gamma, char** dataPt,  int nodeId, int calType
     unsigned idx = blockIdx.x*blockDim.x+threadIdx.x;
     unsigned threadsNum = gridDim.x*blockDim.x;
 
+    if( idx == 0 )
+    {
+        debughouTab(3,"\n\n=============\ndataSize: %d\tpatchSize: %d\tw: %d\tnodeId: %d\tthreadsNum: %d\n===========\n\n", dataSize,patchSize,w,nodeId,threadsNum);
+    }
+
+
     char tmatrix[2];
     char* in_dot[2];
     char* dest;
@@ -428,9 +445,14 @@ __global__ void pieceKernel( char gamma, char** dataPt,  int nodeId, int calType
     {
 
     }*/
+
     switch(calType)
     {
         case A1A2_B1        :
+            if( idx == 0 )
+            {
+                debughouTab(1, "in A1A2_B1: %d\n", dataSize);
+            }
 
             tmatrix[0] = 1;
             tmatrix[1] = gamma;
@@ -439,9 +461,15 @@ __global__ void pieceKernel( char gamma, char** dataPt,  int nodeId, int calType
             in_dot[1] = dataPt[nodeId] + patchSize; //A2
 
             dest = dataPt[nodeId] + patchSize*2; //B1
+            //debughouTab(1, "case finished %d\n", idx);
             break;
 
         case A1B2_B1        :
+
+            if( idx == 0 )
+            {
+                debughouTab(1, "in A1B2_B1: %d\n", dataSize);
+            }
 
             //char gamma_square = galois_single_multiply_gpu_logtable_w8(gamma, gamma);
 
@@ -453,9 +481,15 @@ __global__ void pieceKernel( char gamma, char** dataPt,  int nodeId, int calType
             in_dot[1] = dataPt[nodeId] + patchSize*3; //B2
 
             dest = dataPt[nodeId] + patchSize*2; //B1
+            //debughouTab(1, "case finished %d\n", idx);
             break;
 
         case B1A2_A1        :
+
+            if( idx == 0 )
+            {
+                debughouTab(1, "in B1A2_A1: %d\n", dataSize);
+            }
 
             tmatrix[0] = 1;
             tmatrix[1] = gamma;
@@ -464,9 +498,17 @@ __global__ void pieceKernel( char gamma, char** dataPt,  int nodeId, int calType
             in_dot[1] = dataPt[nodeId] + patchSize*1; //A2
 
             dest = dataPt[nodeId]; //A1
+
+            //debughouTab(1, "case finished %d\n", idx);
             break;
 
         case A1B1_A2        :
+
+            if( idx == 0 )
+            {
+                debughouTab(1, "in A1B1_A2: %d\n", dataSize);
+            }
+
 
             tmatrix[0] = galois_single_divide_gpu_logtable_w8(1,gamma);
             tmatrix[1] = tmatrix[0];
@@ -476,18 +518,64 @@ __global__ void pieceKernel( char gamma, char** dataPt,  int nodeId, int calType
 
             dest = dataPt[nodeId]; //A1
 
+            //debughouTab(1, "case finished %d\n", idx);
+            break;
+
         default:
-            printf("error Case\n");
+            
+            printf("error Case %d\n", calType);
+            __threadfence_system();
+            asm("trap;");
             break;
     }
     
+/*    __threadfence_system();
+    __syncthreads();
+    debughouTab(1, "ready for loooooop %d\n", idx);
+    __syncthreads();
+    __threadfence_system();*/
+/*
+    if( idx == 0 )
+    {
+        for( int i = 0; i < 256; i ++ )
+        {
+            debughouTab(1, "&====: %d: %d----%d\n", i, sh_log[i], sh_antilog[i]);
+        }
+
+        for( int i = 256; i < 256*2; i ++ )
+        {
+            debughouTab(1, "&==&==: %d: %d\n", i, sh_log[i] );            
+        }
+    }*/
+
+
+    //print_table( idx, c_log, c_antilog, c_inv );
     //jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
     //dest[i] = in_dot[0][i] * tmatrix[0] + in_dot[1][i] * tmatrix[1]; 
-    for( int i = idx; i < dataSize; i += threadsNum )
+/*    for( int i = idx; i < dataSize; i += threadsNum )
     {
+        debughouTab(1,"&&& findme!! idx: %d\ti: %d\n", idx, i);
+        debughouTab(1,"&&& findme!! in_dot[0][i]: %u\n", (unsigned char) in_dot[0][i]);
+        debughouTab(1,"&&& findme!! tmatrix[0]: %u\n", (unsigned char) tmatrix[0]);
+        debughouTab(1,"&&& findme!! dest[i]: %u\n", (unsigned char) dest[i]);
+        debughouTab(1,"&&& findme!! in_dot[1][i]: %u\n", (unsigned char) in_dot[0][i]);
+        debughouTab(1,"&&& findme!! tmatrix[1]: %u\n", (unsigned char) tmatrix[1]);
+        debughouTab(1,"&&& findme!! sh_log[in_dot[0][i]]: %u\n", (unsigned char) sh_log[in_dot[0][i]]);
+        debughouTab(1,"&&& findme!! sh_log[in_dot[1][i]]: %u\n", (unsigned char) sh_log[in_dot[1][i]]);
+
+        debughouTab(1,"&&& findme!! sh_log[1]: %u\n", (unsigned char) sh_log[1]);
+        debughouTab(1,"&&& findme!! sh_log[2]: %u\n", (unsigned char) sh_log[2]);
+
+        debughouTab(1,"&&& findme!! sh_log[tmatrix[0]]: %u\n", (unsigned char) sh_log[(unsigned char) tmatrix[0]]);
+        debughouTab(1,"&&& findme!! sh_log[tmatrix[1]]: %u\n", (unsigned char) sh_log[(unsigned char) tmatrix[1]]);
+        debughouTab(1,"&&& findme!! sh_log[tmatrix[0]]: %u\n", (unsigned char) sh_log[tmatrix[0]]);
+        debughouTab(1,"&&& findme!! sh_log[tmatrix[1]]: %u\n", (unsigned char) sh_log[tmatrix[1]]);
+        debughouTab(1,"&&& findme!! w8(in_dot[0][i], tmatrix[0]): %u\n", galois_single_multiply_gpu_logtable_w8(in_dot[0][i], tmatrix[0]));
+        debughouTab(1,"&&& findme!! w8(in_dot[1][i], tmatrix[1]): %u\n", galois_single_multiply_gpu_logtable_w8(in_dot[1][i], tmatrix[1]));
+        
         //todo: optmize a*1 case;
         dest[i] = galois_single_multiply_gpu_logtable_w8(in_dot[0][i], tmatrix[0]) ^ galois_single_multiply_gpu_logtable_w8(in_dot[1][i], tmatrix[1]);    
-    }
+    }*/
 }
 
 
@@ -537,7 +625,7 @@ __global__ void planeKernel( const int k, int nu, const int m, int w, int q, int
     }
   }*/
 
-    char * data_now;
+/*    char * data_now;
     char * erasure_now;
 
     for( int i = 0 ; i < k; i ++ )
@@ -584,7 +672,7 @@ __global__ void planeKernel( const int k, int nu, const int m, int w, int q, int
                 }    
             }
         }
-    }
+    }*/
 }
 
 
@@ -595,6 +683,9 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
 
     assert( 1 == 0 );
     cout << "\n\n\nsurprise~\n\n\n" << endl;
+
+
+    init_gf_log_w8_gpu();
 
     debughouTab(1, "repaired_data:**************\n");
     for( map<int,char*>::iterator it = repaired_data.begin(); it != repaired_data.end(); it ++ )
@@ -667,8 +758,8 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
 
     CUDA_CHECK_RETURN(cudaMalloc(&decode_matrix_gpu, k * k *sizeof(int)));
     CUDA_CHECK_RETURN(cudaMalloc(&dm_ids_gpu, k * sizeof(int)));
-    CUDA_CHECK_RETURN(cudaMalloc(&erasure_loc_data_gpu, qt));
-    CUDA_CHECK_RETURN(cudaMalloc(&erasure_loc_coding_gpu, qt));
+    CUDA_CHECK_RETURN(cudaMalloc(&erasure_loc_data_gpu, qt * sizeof(int)));
+    CUDA_CHECK_RETURN(cudaMalloc(&erasure_loc_coding_gpu, qt * sizeof(int)));
 
     //malloc the data temp space on the gpu a piece has 4 things: A1,A2,B1,B2;
     
@@ -683,7 +774,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
 
     CUDA_CHECK_RETURN(cudaMalloc(&planePOnGpuK, qt*sizeof(char*)));
 
-    CUDA_CHECK_RETURN(cudaMemcpyAsync(planePOnGpuK, planeOnGpu, qt*sizeof(char*), cudaMemcpyHostToDevice,streams[0]));
+    CUDA_CHECK_RETURN(cudaMemcpy(planePOnGpuK, planeOnGpu, qt*sizeof(char*), cudaMemcpyHostToDevice));
 
     int plane_count = 0;
     int erasure_locations[qt];
@@ -711,6 +802,24 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
     debughouTab(1, "\n**************\n");
 
 
+    debughouTab(1, "ordered_planes:**************\n");
+    for(order=1; ;order++){
+        if(ordered_planes.find(order) == ordered_planes.end())
+        {
+            break;
+        }
+        else
+        {
+            debughouTab(0, "\norder: %d\n",order);
+            for( set<int>::iterator it = ordered_planes[order].begin(); it != ordered_planes[order].end(); it ++ )
+            {
+                debughouTab(1, "%d, ", *it);
+            }
+            debughouTab(0, "\n");
+        }
+    }
+    debughouTab(1, "\n**************\n");
+
 
     //repair planes in order
     for(order=1; ;order++){
@@ -721,20 +830,20 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
         else
         {
             plane_count += ordered_planes[order].size();
-
+            debughouTab(0, "\n\n\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\norder: %d\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n\n\n",order);
 
             //where GPU works
             for(set<int>::iterator z=ordered_planes[order].begin(); z != ordered_planes[order].end(); ++z)
             {
                 get_plane_vector(q,t,*z, z_vec);
 
-                debughouTab(1, "z_vec**************************\n");
+                debughouTab(0, "\n\n**************************************\nplane now: %d\nz_vec\n", *z);
 
                 for( int u = 0; u < t; u ++ )
                 {
                     debughouTab(1, "%d", z_vec[u]);
                 }
-                debughouTab(1, "\n**************************\n");
+                debughouTab(0, "\n***************************************\n\n\n");
 
                 int pieceOffset = 0;
                 int pieceSize = 0;
@@ -747,6 +856,9 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                 for( int pi = 0; pi < pieceCount; pi ++ )
                 {
                     pieceSize = __getPieceSize(pi);
+
+                    debughouTab(0,"\n\n***********************\npieceCount: %d\tpieceSize: %d\tpieceSizeMax: %d\tpi: %d\tpieceoffset: %d\n***************************\n\n",\
+                        pieceCount,pieceSize,pieceSizeMax,pi,pieceOffset);
 
                     num_erased = 0;
                     for(y=0; y < t; y++)
@@ -772,7 +884,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                                     if(x > z_vec[y])//todo: check if is right
                                     {
                                         B2 = &B_buf[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize + pieceOffset];
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*3,  B2, pieceSize, cudaMemcpyHostToDevice, streams[0]) );
+                                        CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy] + pieceSizeMax*3,  B2, pieceSize, cudaMemcpyHostToDevice) );
                                     }
                                 }
                                 else
@@ -782,7 +894,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
 
                                     if( z_vec[y] != x)
                                     {
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*1, A2, pieceSize, cudaMemcpyHostToDevice, streams[0]) );
+                                        CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy] + pieceSizeMax*1, A2, pieceSize, cudaMemcpyHostToDevice) );
                                         //get_B1_fromA1A2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, A2, sub_chunksize);
                                     }
                                 }
@@ -819,12 +931,14 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                                         A2 = &repaired_data[node_sw][z_sw*sub_chunksize + pieceOffset];
 
                                         //transfer A1A2 and cal B1 B2;
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy],                A1, pieceSize, cudaMemcpyHostToDevice, streams[0]) );
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax, A2, pieceSize, cudaMemcpyHostToDevice, streams[0]) );
+                                        CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy],                A1, pieceSize, cudaMemcpyHostToDevice) );
+                                        CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy] + pieceSizeMax, A2, pieceSize, cudaMemcpyHostToDevice) );
                                         
                                         //todo: find a parameter
                                         pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( clmsrProfileP->gamma,planePOnGpuK,node_xy, A1A2_B1, pieceSize, pieceSizeMax, clmsrProfileP->w);
 
+                    //debug
+                    CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
 
                                         //get_B1_fromA1A2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, A2,sub_chunksize);
                                     }
@@ -832,11 +946,14 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                                     {
                                         B2 = &B_buf[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize + pieceOffset];
 
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy],                  A1, pieceSize, cudaMemcpyHostToDevice, streams[0]) );
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*3, B2, pieceSize, cudaMemcpyHostToDevice, streams[0]) );
+                                        CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy],                  A1, pieceSize, cudaMemcpyHostToDevice) );
+                                        CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy] + pieceSizeMax*3, B2, pieceSize, cudaMemcpyHostToDevice) );
                                         
                                         //todo: find a parameter
                                         pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( clmsrProfileP->gamma,planePOnGpuK,node_xy,A1B2_B1, pieceSize, pieceSizeMax, clmsrProfileP->w);
+                                        
+                    //debug
+                    CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
                                         //get_B1_fromA1B2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, B2, sub_chunksize);
                                     }
                                     else
@@ -846,17 +963,24 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                                         A2 = &helper_data[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize + pieceOffset];
                                         if( z_vec[y] != x)
                                         {
-                                            CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy],                  A1, pieceSize, cudaMemcpyHostToDevice, streams[0]) );
-                                            CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*1, A2, pieceSize, cudaMemcpyHostToDevice, streams[0]) );
+                                            CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy],                  A1, pieceSize, cudaMemcpyHostToDevice) );
+                                            CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy] + pieceSizeMax*1, A2, pieceSize, cudaMemcpyHostToDevice) );
                                         
                                             //todo: find a parameter
                                             pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( clmsrProfileP->gamma,planePOnGpuK,node_xy,A1A2_B1, pieceSize, pieceSizeMax, clmsrProfileP->w);
+                                            
+                    //debug
+                    CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
                                             //get_B1_fromA1A2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, A2, sub_chunksize);
                                         }
                                         else
                                         {
-                                            //CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy],                  A1, pieceSize, cudaMemcpyHostToDevice, streams[0]) );
-                                            CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*2, A1, pieceSize, cudaMemcpyHostToDevice, streams[0]) );
+                                            //CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy],                  A1, pieceSize, cudaMemcpyHostToDevice) );
+                                            CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy] + pieceSizeMax*2, A1, pieceSize, cudaMemcpyHostToDevice) );
+                                            
+
+                    //debug
+                    CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
                                             //pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,streams[1]>>>(planePOnGpuK,node_xy,A1A2);
                                             //pieceKernel<<<>>>(A1A2);red point
                                             //memcpy(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, sub_chunksize);
@@ -906,15 +1030,15 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
 
                         printf("get afer jerasure_make_decoding_matrix=========================================\n");
                         
-                        CUDA_CHECK_RETURN( cudaMemcpyAsync(decode_matrix_gpu, decode_matrix, k*k*sizeof(int), cudaMemcpyHostToDevice, streams[0]) );
-                        CUDA_CHECK_RETURN( cudaMemcpyAsync(dm_ids_gpu, dm_ids, k*sizeof(int), cudaMemcpyHostToDevice, streams[0]) );
+                        CUDA_CHECK_RETURN( cudaMemcpy(decode_matrix_gpu, decode_matrix, k*k*sizeof(int), cudaMemcpyHostToDevice) );
+                        CUDA_CHECK_RETURN( cudaMemcpy(dm_ids_gpu, dm_ids, k*sizeof(int), cudaMemcpyHostToDevice) );
                         
 
                         erased_data_size = full_erased_list_data( k, m, erasure_loc_data, erased );
                         erased_coding_size = full_erased_list_coding( k, m, erasure_loc_coding, erased );
 
-                        CUDA_CHECK_RETURN( cudaMemcpyAsync(erasure_loc_data_gpu, erasure_loc_data, qt*sizeof(int), cudaMemcpyHostToDevice, streams[0]) );
-                        CUDA_CHECK_RETURN( cudaMemcpyAsync(erasure_loc_coding_gpu, erasure_loc_coding, qt*sizeof(int), cudaMemcpyHostToDevice, streams[0]) );
+                        CUDA_CHECK_RETURN( cudaMemcpy(erasure_loc_data_gpu, erasure_loc_data, qt*sizeof(int), cudaMemcpyHostToDevice) );
+                        CUDA_CHECK_RETURN( cudaMemcpy(erasure_loc_coding_gpu, erasure_loc_coding, qt*sizeof(int), cudaMemcpyHostToDevice) );
                    
                     }
 
@@ -925,6 +1049,10 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                         k, clmsrProfileP->nu, m, clmsrProfileP->w, q, t,\
                         clmsrGpuP->matrix_gpu, decode_matrix_gpu, dm_ids_gpu, erasure_loc_data_gpu, erased_data_size, erasure_loc_coding_gpu, erased_coding_size, planePOnGpuK, pieceSize, pieceSizeMax\
                      );//decode;
+
+
+                    //debug
+                    CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
 
                     for(int i = 0; i < num_erased; i++)
                     {
@@ -945,7 +1073,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                             {//hole-dot pair (type 0)
                             //dout(10) << "recovering the hole dot pair/lost node in repair plane" << dendl;
                                 A1 = &repaired_data[erasure_locations[i]][*z*sub_chunksize + pieceOffset];
-                                CUDA_CHECK_RETURN( cudaMemcpyAsync( A1, planeOnGpu[erasure_locations[i]] + pieceSizeMax*2, pieceSize, cudaMemcpyDeviceToHost, streams[2]) );
+                                CUDA_CHECK_RETURN( cudaMemcpy( A1, planeOnGpu[erasure_locations[i]] + pieceSizeMax*2, pieceSize, cudaMemcpyDeviceToHost) );
                                 //memcpy(A1, B1, sub_chunksize);
                                 count_retrieved_sub_chunks++;
                             }//can recover next case (type 2) only after obtaining B's for all the planes with same order
@@ -966,8 +1094,12 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                                             
 
                                             pieceKernelGamma<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],GAMMA_INVERSE, pieceSize, pieceSizeMax, clmsrProfileP->w);
-                                            CUDA_CHECK_RETURN( cudaMemcpyAsync( A1, planeOnGpu[erasure_locations[i]],                  pieceSize, cudaMemcpyDeviceToHost, streams[2]) );
-                                            CUDA_CHECK_RETURN( cudaMemcpyAsync( A2, planeOnGpu[erasure_locations[i]] + pieceSizeMax*1, pieceSize, cudaMemcpyDeviceToHost, streams[2]) );
+                                            
+                                            //debug
+                                            CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
+
+                                            CUDA_CHECK_RETURN( cudaMemcpy( A1, planeOnGpu[erasure_locations[i]],                  pieceSize, cudaMemcpyDeviceToHost) );
+                                            CUDA_CHECK_RETURN( cudaMemcpy( A2, planeOnGpu[erasure_locations[i]] + pieceSizeMax*1, pieceSize, cudaMemcpyDeviceToHost) );
                                 
                                             
                                             //gamma_inverse_transform(A1, A2, B1, B2, sub_chunksize);
@@ -976,7 +1108,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                                         else
                                         {
                                             B1 = &B_buf[erasure_locations[i]][repair_plane_to_ind[*z]*sub_chunksize + pieceOffset];
-                                            CUDA_CHECK_RETURN( cudaMemcpyAsync( B1, planeOnGpu[erasure_locations[i]] + pieceSizeMax*2, pieceSize, cudaMemcpyDeviceToHost, streams[2]) );
+                                            CUDA_CHECK_RETURN( cudaMemcpy( B1, planeOnGpu[erasure_locations[i]] + pieceSizeMax*2, pieceSize, cudaMemcpyDeviceToHost) );
                                         }
                                     }
                                     else//node_sw是一个helper节点：　这里不可能是一个aloof节点，因为同一个y-section的都是helper节点．
@@ -988,7 +1120,11 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                                         //A2 = &helper_data[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize + pieceOffset];
 
                                         pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],B1A2_A1, pieceSize, pieceSizeMax, clmsrProfileP->w);
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync( A1, planeOnGpu[erasure_locations[i]], pieceSize, cudaMemcpyDeviceToHost, streams[2]) );
+                                        
+                                        //debug
+                                        CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
+                                        
+                                        CUDA_CHECK_RETURN( cudaMemcpy( A1, planeOnGpu[erasure_locations[i]], pieceSize, cudaMemcpyDeviceToHost) );
                             
                                         //get_type1_A(A1, B1, A2, sub_chunksize);
                                         count_retrieved_sub_chunks++;
@@ -1005,7 +1141,12 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                                         //i got to recover A2, if z_sw was already there
                                         //dout(10) << "recovering A2 of node:" << node_sw << " at location " << z_sw << dendl;
                                         pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],A1B1_A2, pieceSize, pieceSizeMax, clmsrProfileP->w);
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync( A2, planeOnGpu[erasure_locations[i]] + pieceSizeMax*1, pieceSize, cudaMemcpyDeviceToHost, streams[2]) );
+                                        
+                    //debug
+                    CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
+
+
+                                        CUDA_CHECK_RETURN( cudaMemcpy( A2, planeOnGpu[erasure_locations[i]] + pieceSizeMax*1, pieceSize, cudaMemcpyDeviceToHost) );
                             
 
                                         //A1 = &helper_data[erasure_locations[i]][repair_plane_to_ind[*z]*sub_chunksize];
@@ -1071,4 +1212,34 @@ void SingleGpuRoute::deinit()
     {
         CUDA_CHECK_RETURN(cudaEventDestroy(events[i]));
     }
+}
+
+int SingleGpuRoute::init_gf_log_w8_gpu( cudaStream_t stream )
+{
+    int ret = copy_log_to_gpu_w8();
+
+    unsigned char log_temp[256];
+    unsigned char anti_temp[256*2];
+    unsigned char inv_temp[256];
+
+    //debug
+    cudaMemcpyFromSymbol(log_temp, c_log, 256 );
+    cudaMemcpyFromSymbol(anti_temp, c_antilog, 256 * 2 );
+    cudaMemcpyFromSymbol(inv_temp, c_inv, 256 );
+
+    //cout << " mypt:  " << (int)(&c_log[0]) << endl;
+    printf("your pt0:   %d\n", &c_log[0] );
+
+    for( int i = 0; i < 256; i ++ )
+    {
+        printf("temp---i: %d:\t%d\t %d\n", i, log_temp[i], anti_temp[i] );
+    }
+
+    for( int i = 256; i < 256*2; i ++ )
+    {
+        printf("temp---i: %d:\t%d\n", i, anti_temp[i] );
+    }
+
+
+    return copy_log_to_gpu_w8();
 }

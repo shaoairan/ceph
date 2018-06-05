@@ -10,8 +10,11 @@
 
 gf_t * gfp_w8_log = NULL;
 
-int get_w8_log_tables( char* log, char* anti_log, char* inv )
+
+
+gfp_w8_log_gpu get_w8_log_tables()
 {
+    gfp_w8_log_gpu table_p;
     if( gfp_w8_log == NULL )
     {
 /*      gf_t* galois_init_field(int w,
@@ -22,7 +25,7 @@ int get_w8_log_tables( char* log, char* anti_log, char* inv )
                         int arg1,
                         int arg2)*/
 
-      printf(" get gfp failed, creating gf-field inited!! ");
+      printf(" get gfp failed, creating gf-field!! ");
       gfp_w8_log = galois_init_field(8,
                         GF_MULT_LOG_TABLE,
                         GF_REGION_DEFAULT,
@@ -33,6 +36,8 @@ int get_w8_log_tables( char* log, char* anti_log, char* inv )
       //return 1;
     }
 
+    printf(" get gfp succeed~~~~~~~~~~~~~~~ ");
+
 /*    struct gf_w8_logtable_data {
         uint8_t         log_tbl[GF_FIELD_SIZE];
         uint8_t         antilog_tbl[GF_FIELD_SIZE * 2];
@@ -41,9 +46,20 @@ int get_w8_log_tables( char* log, char* anti_log, char* inv )
 
   struct gf_w8_logtable_data *ltd;
   ltd = (struct gf_w8_logtable_data *) ((gf_internal_t *) gfp_w8_log->scratch)->private;
-  log = (char*)ltd->log_tbl;
-  anti_log = (char*)ltd->antilog_tbl;
-  inv = (char*)ltd->inv_tbl;
 
-  return 0;
+/*  for( int i = 0; i < 256; i ++ )
+  {
+    printf("i: %d:\t%d\t %d\n", i, ltd->log_tbl[i], ltd->antilog_tbl[i] );
+  }
+
+  for( int i = 256; i < 256*2; i ++ )
+  {
+    printf("i: %d:\t%d\n", i, ltd->antilog_tbl[i] );
+  }*/
+
+  table_p.log = (unsigned char*)ltd->log_tbl;
+  table_p.anti_log = (unsigned char*)ltd->antilog_tbl;
+  table_p.inv = (unsigned char*)ltd->inv_tbl;
+
+  return table_p;
 }

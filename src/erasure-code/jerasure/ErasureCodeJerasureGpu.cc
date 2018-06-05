@@ -1545,23 +1545,6 @@ int ErasureCodeJerasureCLMSR_GPU::jerasure_matrix_decode_substripe(int k, int m,
   return 0;
 }
 
-/*int ErasureCodeJerasureCLMSR_GPU::init_gf_log_w8_gpu( cudaStream_t stream )
-{
-    gf_t * gfp = galois_get_field_ptr(8);
-
-    struct gf_w8_logtable_data {
-        uint8_t         log_tbl[GF_FIELD_SIZE];
-        uint8_t         antilog_tbl[GF_FIELD_SIZE * 2];
-        uint8_t         inv_tbl[GF_FIELD_SIZE];
-    };
-
-    struct gf_w8_logtable_data *ltd;
-    ltd = (struct gf_w8_logtable_data *) ((gf_internal_t *) gfp->scratch)->private;
-    copy_log_to_gpu_w8( ltd->log_tbl, ltd->antilog_tbl, ltd->inv_tbl );
-
-    return 0;
-}
-*/
 int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaired_data, set<int> &aloof_nodes,
                            map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind)
 {
