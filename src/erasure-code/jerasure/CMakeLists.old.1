@@ -21,6 +21,8 @@ set(jerasure_utils_src
 add_library(jerasure_utils OBJECT ${jerasure_utils_src})
 
 
+
+
 add_dependencies(jerasure_utils ${CMAKE_SOURCE_DIR}/src/ceph_ver.h)
 
 # Set the CFLAGS correctly for gf-complete based on SIMD compiler support
@@ -106,6 +108,8 @@ set(ec_jerasure_objs
   )
 
 MESSAGE(STATIC "===========marky This is new==========================")
+#FIND_LIBRARY(gpuTest libcephCudaLibTest.a ${PROJECT_BINARY_DIR}/lib)
+
 set(gpuTest
   ${PROJECT_BINARY_DIR}/lib/libcephCudaLibTest.a
   cudadevrt

@@ -1579,9 +1579,10 @@ int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaire
     SingleGpuRoute singleGpuRoute(0, &clmsrGpu, 0, clmsrProfile.subChunkSize);
     //init_gf_log_w8_gpu( singleGpuRoute.streams[0] );
 
-    singleGpuRoute.doRepair( repaired_data, aloof_nodes,
+    /*singleGpuRoute.doRepair( repaired_data, aloof_nodes,
                            helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrGpu.B_buf);
-
+*/
+    singleGpuRoute.compareGf();
     return 0;
 }
 

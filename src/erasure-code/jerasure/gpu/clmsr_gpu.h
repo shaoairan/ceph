@@ -9,6 +9,7 @@
 #include<cstdio>
 #include <cuda_runtime.h>
 #include <helper_cuda.h>
+#include "gf_types.h"
 
 using namespace std;
 
@@ -118,6 +119,8 @@ public:
 
 	int planeKernelGridSize;
 	int planeKernelBlockSize;
+
+	gf_w8_log_gpu gf_table;
 	
 private:
 	int pieceCount;
@@ -134,6 +137,8 @@ public:
 	int doDecode();
 	void deinit();
 	int init_gf_log_w8_gpu( cudaStream_t stream = 0 );
+
+	void compareGf();
 };
 
 #endif
