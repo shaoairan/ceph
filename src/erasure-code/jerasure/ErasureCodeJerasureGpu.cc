@@ -90,7 +90,7 @@ int ErasureCodeJerasureCLMSR_GPU::jerasure_decode(int *erasures, char **data,
                                                              int chunksize)
 {
   FT(ErasureCodeJerasureCLMSR_GPU::jerasure_decode);
-  int r = decode_layered(erasures, data, coding, chunksize);
+  int r = decode_layered_gpu(erasures, data, coding, chunksize);
   return r;
 }
 
@@ -1574,15 +1574,102 @@ int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaire
 
 //sadasd
     printf("I fuck all this stupid\n");
-    ClmsrGpu clmsrGpu(repaired_data, aloof_nodes,\
-                           helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrProfile);
+    ClmsrGpu clmsrGpu(clmsrProfile);
     SingleGpuRoute singleGpuRoute(0, &clmsrGpu, 0, clmsrProfile.subChunkSize);
     //init_gf_log_w8_gpu( singleGpuRoute.streams[0] );
 
-    /*singleGpuRoute.doRepair( repaired_data, aloof_nodes,
+    clmsrGpu.pinAllMemoryForRepair( repaired_data, chunkSize, helper_data, subChunkSize*repair_sub_chunks_ind.size() );
+
+    singleGpuRoute.doRepair( repaired_data, aloof_nodes,
                            helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrGpu.B_buf);
-*/
-    singleGpuRoute.compareGf();
+
+    clmsrGpu.unpinAllMemoryForRepair( repaired_data, helper_data );
+
+    //singleGpuRoute.compareGf();
     return 0;
 }
 
+int ErasureCodeJerasureCLMSR_GPU::decode_layered_gpu(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size)
+{
+
+  FT(ErasureCodeJerasureCLMSR_GPU::decode_layered_gpu);
+  printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\n****************\n", gamma,q,t,d );
+  int i;
+
+
+  int num_erasures = 0;
+
+  assert(size%sub_chunk_no == 0);
+  int ss_size = size/sub_chunk_no;
+  
+  for(i=0; i < q*t; i++){
+    if(erasure_locations[i]==-1)break;
+    else num_erasures++;
+  }
+
+  if(!num_erasures) assert(0);
+
+  int* erased = jerasure_erasures_to_erased(k+nu,m, erasure_locations);
+  if(erased==NULL) assert(0);
+
+  i = 0;
+
+  //when we see less than m erasures,we assume m erasures and work
+  while((num_erasures < m) && (i < q*t)) {
+      if(erased[i] != 1){     
+        erasure_locations[num_erasures] = i;
+        erased[i] = 1;
+        num_erasures++;
+      }
+      i++;
+  }
+  erasure_locations[num_erasures] = -1;
+
+  assert(num_erasures == m);
+  
+  erasure_t erasures[m];
+  int weight_vec[t];
+
+  get_erasure_coordinates(erasure_locations, erasures);
+  get_weight_vector( erasures, weight_vec);
+
+  int max_weight = get_hamming_weight(weight_vec);
+
+  int order[sub_chunk_no];
+
+  set_planes_sequential_decoding_order( order, erasures);
+
+
+/*    debughou("matrix before: \n========================================\n");
+
+  for( int i = 0; i < m; i ++ )
+  {
+      for( int j = 0; j < k; j ++ )
+      {
+        debughou( "%d, ", matrix[i*k+j] );
+      }
+      debughou("\n");
+  }
+
+  debughou("=====================================\n");*/
+
+  ClmsrProfile clmsrProfile( q,t,d,sub_chunk_no,\
+  k,m,w,nu,\
+  gamma,matrix, \
+  size, ss_size, (MdsType) mds_block );
+
+//sadasd
+  printf("I fuck all this stupid\n");
+  ClmsrGpu clmsrGpu( clmsrProfile );
+
+  clmsrGpu.pinAllMemoryForDecode( data_ptrs, size, code_ptrs, size );
+
+  SingleGpuRoute singleGpuRoute(0, &clmsrGpu, 0, clmsrProfile.subChunkSize);
+  //init_gf_log_w8_gpu( singleGpuRoute.streams[0] );
+  int ret = singleGpuRoute.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size, clmsrGpu.B_buf);
+
+  clmsrGpu.unpinAllMemoryForDecode( data_ptrs, code_ptrs );
+
+  free(erased);
+  return ret;
+}

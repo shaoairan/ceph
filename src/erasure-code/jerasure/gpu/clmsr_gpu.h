@@ -10,6 +10,7 @@
 #include <cuda_runtime.h>
 #include <helper_cuda.h>
 #include "gf_types.h"
+#include "cl_bridge.h"
 
 using namespace std;
 
@@ -78,11 +79,6 @@ map<int,int> &repair_sub_chunks_ind
 */
 public:
 
-	map<int,char*> &repaired_data; 
-	set<int> &aloof_nodes;
-	map<int, char*> &helper_data;
-	int repair_blocksize;
-	map<int,int> &repair_sub_chunks_ind;
 	char** B_buf;
 	int *matrix_gpu;
 
@@ -90,10 +86,12 @@ public:
 	ClmsrProfile clmsrProfile;
 	DeviceInfo deviceInfo;
 
-	ClmsrGpu( map<int,char*> &repaired_data_, set<int> &aloof_nodes_, map<int, char*> &helper_data_, \
-		int repair_blocksize_, map<int,int> &repair_sub_chunks_ind_, ClmsrProfile clmsrProfile_ );
+	ClmsrGpu( ClmsrProfile clmsrProfile_ );
 	~ClmsrGpu();
-
+	int pinAllMemoryForRepair(  map<int,char*>& repaired_data, int sizeRepair,  map<int,char*>& helper_data,  int sizeHelper );
+	int unpinAllMemoryForRepair(  map<int,char*>& repaired_data,   map<int,char*>& helper_data );
+	int pinAllMemoryForDecode(  char** data_ptrs, int sizeData,  char** code_ptrs,  int sizeCode );
+	int unpinAllMemoryForDecode(  char** data_ptrs,   char** code_ptrs );
 
 private:
 	inline void pinMemory( map<int,char*> map, int size );
@@ -133,9 +131,12 @@ public:
 	
 	void init();
 	int doRepair(map<int,char*> &repaired_data, set<int> &aloof_nodes,
-                           map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind, char** B_buf );
-	int doDecode();
-	void deinit();
+                        map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind, char** B_buf );
+
+	int doDecode( int* erasure_locations, char** data_ptrs, char** code_ptrs, int* erased, \
+                            int num_erasures, int* order, int* weight_vec, int max_weight, int size, char ** B_buf);
+
+    void deinit();
 	int init_gf_log_w8_gpu( cudaStream_t stream = 0 );
 
 	void compareGf();

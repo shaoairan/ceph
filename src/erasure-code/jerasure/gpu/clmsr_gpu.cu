@@ -29,8 +29,9 @@ extern "C" {
 #define A1B2_B1 2
 #define B1A2_A1 3
 #define A1B1_A2 4
-#define GAMMA 5
-#define GAMMA_INVERSE 6
+#define B1B2_A1 5
+#define GAMMA 6
+#define GAMMA_INVERSE 7
 
 #define debughouTab(num, fmt, arg...)     for(int o = 0; o < num; o ++) printf("\t");     printf((const char*)fmt, ##arg)
 
@@ -175,10 +176,8 @@ ClmsrProfile::ClmsrProfile( int q_,int t_,int d_,int sub_chunk_no_,\
 
 
 
-ClmsrGpu::ClmsrGpu( map<int,char*> &repaired_data_, set<int> &aloof_nodes_, map<int, char*> &helper_data_, \
-        int repair_blocksize_, map<int,int> &repair_sub_chunks_ind_, ClmsrProfile clmsrProfile_ ) : \
-     repaired_data(repaired_data_), aloof_nodes(aloof_nodes_), helper_data(helper_data_),\
-     repair_blocksize(repair_blocksize_),repair_sub_chunks_ind(repair_sub_chunks_ind_), clmsrProfile(clmsrProfile_)
+ClmsrGpu::ClmsrGpu(  ClmsrProfile clmsrProfile_ ) : \
+     clmsrProfile(clmsrProfile_)
      {
         printf("happy should I?");
 
@@ -197,11 +196,6 @@ ClmsrGpu::ClmsrGpu( map<int,char*> &repaired_data_, set<int> &aloof_nodes_, map<
             }
         }
 
-
-        //done: pin memory
-        pinMemory(repaired_data, clmsrProfile.chunkSize );
-        pinMemory(helper_data, clmsrProfile.subChunkSize*repair_sub_chunks_ind.size() );
-
         //done: get GpuInfo
 
         //todo try to put it in the shared memory;
@@ -209,6 +203,52 @@ ClmsrGpu::ClmsrGpu( map<int,char*> &repaired_data_, set<int> &aloof_nodes_, map<
         CUDA_CHECK_RETURN(cudaMemcpy(matrix_gpu, clmsrProfile.matrix, sizeof(int)*(clmsrProfile.k*clmsrProfile.m), cudaMemcpyHostToDevice));
 
      }
+
+int ClmsrGpu::pinAllMemoryForRepair(  map<int,char*>& repaired_data, int sizeRepair,  map<int,char*>& helper_data,  int sizeHelper )
+{
+    pinMemory(repaired_data, sizeRepair );
+    pinMemory(helper_data, sizeHelper );
+    return 0;
+}
+
+int ClmsrGpu::unpinAllMemoryForRepair(  map<int,char*>& repaired_data,   map<int,char*>& helper_data )
+{
+    unpinMemory(repaired_data );
+    unpinMemory(helper_data );
+    return 0;
+
+}
+
+int ClmsrGpu::pinAllMemoryForDecode(  char** data_ptrs, int sizeData,  char** code_ptrs,  int sizeCode )
+{   
+
+    //todo: check nu is alloced? may the author is wrong and forget to do it, error!!!
+    for( int i = 0; i < clmsrProfile.k + clmsrProfile.nu; i ++ )
+    {       //todo:flags
+        CUDA_CHECK_RETURN(cudaHostRegister(data_ptrs[i], sizeData, cudaHostAllocPortable));
+    }
+
+    for( int i = 0; i < clmsrProfile.m; i ++ )
+    {       //todo:flags
+        CUDA_CHECK_RETURN(cudaHostRegister(code_ptrs[i], sizeCode, cudaHostAllocPortable));
+    }
+    return 0;
+
+}
+
+int ClmsrGpu::unpinAllMemoryForDecode(  char** data_ptrs,   char** code_ptrs )
+{
+    for( int i = 0; i < clmsrProfile.k + clmsrProfile.nu; i ++ )
+    {       //todo:flags
+        CUDA_CHECK_RETURN(cudaHostUnregister(data_ptrs[i]));
+    }
+
+    for( int i = 0; i < clmsrProfile.m; i ++ )
+    {       //todo:flags
+        CUDA_CHECK_RETURN(cudaHostUnregister(code_ptrs[i]));
+    }
+    return 0;
+}
 
 ClmsrGpu::~ClmsrGpu()
 {
@@ -220,11 +260,6 @@ ClmsrGpu::~ClmsrGpu()
     }
 
     cudaFreeHost(B_buf);
-
-    //done: unpinmemory
-    unpinMemory(repaired_data );
-    unpinMemory(helper_data );
-
 
     cudaFree(matrix_gpu);
 }
@@ -552,6 +587,26 @@ __global__ void pieceKernel( gf_w8_log_gpu gf_table, unsigned char gamma, unsign
             dest = dataPt[nodeId]; //A1
 
             //debughouTab(1, "case finished %d\n", idx);
+            break;       
+
+
+        case B1B2_A1        :
+
+            if( idx == 0 )
+            {
+                debughouTab(1, "in A1B1_A2: %d\n", dataSize);
+            }
+
+
+            tmatrix[0] = galois_single_divide_gpu_logtable_w8(1, 1 ^ (galois_single_multiply_gpu_logtable_w8(gamma, gamma)));
+            tmatrix[1] = galois_single_multiply_gpu_logtable_w8(gamma,galois_single_divide_gpu_logtable_w8(1, 1 ^ (galois_single_multiply_gpu_logtable_w8(gamma, gamma))));
+            
+
+            in_dot[0] = dataPt[nodeId] + patchSize*2;  //B1
+            in_dot[1] = dataPt[nodeId] + patchSize*3; //B2
+
+            dest = dataPt[nodeId]; //A1
+            //debughouTab(1, "case finished %d\n", idx);
             break;
 
         default:
@@ -815,7 +870,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
     int erasure_locations[qt];
 
     //get order of all planes
-    for(map<int,int>::iterator i = clmsrGpuP->repair_sub_chunks_ind.begin(); i != clmsrGpuP->repair_sub_chunks_ind.end(); ++i)
+    for(map<int,int>::iterator i = repair_sub_chunks_ind.begin(); i != repair_sub_chunks_ind.end(); ++i)
     {
         get_plane_vector(q,  t, i->second, z_vec);
         order = 0;
@@ -1231,8 +1286,255 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
 }
 
 
-int SingleGpuRoute::doDecode()
+int is_erasure_type_1(int m, int ind, erasure_t_gpu* erasures, int* z_vec){
+
+  // Need to look for the column of where erasures[i] is and search to see if there is a hole dot pair.
+  int i;
+
+  if(erasures[ind].x == z_vec[erasures[ind].y]) return 0; //type-0 erasure
+
+  for(i=0; i < m; i++){
+    if(erasures[i].y == erasures[ind].y){
+      if(erasures[i].x == z_vec[erasures[i].y]){
+    return 0;
+      }
+    }
+  }
+  return 1;
+
+}
+
+void get_erasure_coordinates_gpu(int m, int q, int t, int* erasure_locations, erasure_t_gpu* erasures )
 {
+  int i;
+
+  for(i = 0; i<m; i++){
+    if(erasure_locations[i]==-1)break;
+    erasures[i].x = erasure_locations[i]%q;
+    erasures[i].y = erasure_locations[i]/q;
+  }
+}
+
+int SingleGpuRoute::doDecode \
+( int* erasure_locations, char** data_ptrs, char** code_ptrs, int* erased, \
+                            int num_erasures, int* order, int* weight_vec, int max_weight, int size, char ** B_buf)
+
+{
+    FT(SingleGpuRoute::doDecode);
+    init_gf_log_w8_gpu();
+
+    erasure_t_gpu erasures[clmsrProfileP->m];
+    get_erasure_coordinates_gpu(clmsrProfileP->m, clmsrProfileP->q, clmsrProfileP->t, erasure_locations, erasures);
+
+    int i;
+
+    char *A1 = NULL, *A2 = NULL;
+
+    int hm_w;
+
+    assert(size%clmsrProfileP->subChunkSize == 0);
+    int ss_size = clmsrProfileP->subChunkSize;
+
+
+   printf(" k: %d\t nu: %d\t m: %d\n",clmsrProfileP->k, clmsrProfileP->nu, clmsrProfileP->m );
+    const int k = clmsrProfileP->k + clmsrProfileP->nu;
+    const int m = clmsrProfileP->m;
+
+    const int sub_chunksize = clmsrProfileP->subChunkSize;
+
+    const int q = clmsrProfileP->q, t = clmsrProfileP->t, nu = clmsrProfileP->nu;
+    const int qt = q * t;
+    int* z_vec;
+
+    CUDA_CHECK_RETURN( cudaHostAlloc(&z_vec, t * sizeof(int), cudaHostAllocPortable) );
+
+
+    map<int, set<int> > ordered_planes;
+    map<int, int> repair_plane_to_ind;
+    int z, x,y, node_xy, node_sw, z_sw;
+    int *decode_matrix_gpu;
+    int *decode_matrix;
+    int *dm_ids;
+    int *dm_ids_gpu;
+    int *erasure_loc_data;
+    int *erasure_loc_data_gpu;
+    int *erasure_loc_coding;
+    int *erasure_loc_coding_gpu;
+    int erased_data_size = 0;
+    int erased_coding_size = 0;
+
+    dm_ids = talloc(int, k);
+    decode_matrix = talloc(int, k*k);
+    erasure_loc_data = talloc(int, qt);
+    erasure_loc_coding = talloc(int, qt);
+
+    CUDA_CHECK_RETURN(cudaMalloc(&decode_matrix_gpu, k * k *sizeof(int)));
+    CUDA_CHECK_RETURN(cudaMalloc(&dm_ids_gpu, k * sizeof(int)));
+    CUDA_CHECK_RETURN(cudaMalloc(&erasure_loc_data_gpu, qt * sizeof(int)));
+    CUDA_CHECK_RETURN(cudaMalloc(&erasure_loc_coding_gpu, qt * sizeof(int)));
+
+    //malloc the data temp space on the gpu a piece has 4 things: A1,A2,B1,B2;
+    
+    int pieceSizeMax = __getPieceSize(0);
+    unsigned char* planeOnGpu[qt];
+    for( int i = 0; i < qt; i ++ )
+    {
+        CUDA_CHECK_RETURN(cudaMalloc(&planeOnGpu[i], pieceSizeMax*4));
+    }
+
+    unsigned char** planePOnGpuK;
+
+    CUDA_CHECK_RETURN(cudaMalloc(&planePOnGpuK, qt*sizeof(unsigned char*)));
+
+    CUDA_CHECK_RETURN(cudaMemcpy(planePOnGpuK, planeOnGpu, qt*sizeof(unsigned char*), cudaMemcpyHostToDevice));
+
+    //init decode vars: etc: decode_matrix
+    printf("get before jerasure_make_decoding_matrix=========================================\n");
+    if (jerasure_make_decoding_matrix(k, m, clmsrProfileP->w, clmsrProfileP->matrix, erased, decode_matrix, dm_ids) < 0) 
+    {
+      printf("Can not get decoding matrix!!!\n");
+      return -1;
+    }
+
+    CUDA_CHECK_RETURN( cudaMemcpy(decode_matrix_gpu, decode_matrix, k*k*sizeof(int), cudaMemcpyHostToDevice) );
+    CUDA_CHECK_RETURN( cudaMemcpy(dm_ids_gpu, dm_ids, k*sizeof(int), cudaMemcpyHostToDevice) );
+    
+
+    erased_data_size = full_erased_list_data( k, m, erasure_loc_data, erased );
+    erased_coding_size = full_erased_list_coding( k, m, erasure_loc_coding, erased );
+
+    CUDA_CHECK_RETURN( cudaMemcpy(erasure_loc_data_gpu, erasure_loc_data, qt*sizeof(int), cudaMemcpyHostToDevice) );
+    CUDA_CHECK_RETURN( cudaMemcpy(erasure_loc_coding_gpu, erasure_loc_coding, qt*sizeof(int), cudaMemcpyHostToDevice) );
+    printf("get afer jerasure_make_decoding_matrix=========================================\n");
+
+
+    for(hm_w = 0; hm_w <= max_weight; hm_w++)
+    {
+            int pieceOffset = 0;
+            int pieceSize = 0;
+            //init_matrix = false;
+
+                //printf("get set<int>::iterator z=ordered_planes[order].begin(); z != ordered_planes[order].end()=========================================\n");
+
+                printf("pieceCount %d \n", pieceCount );
+
+        for( int pi = 0; pi < pieceCount; pi ++ )
+        {
+            pieceSize = __getPieceSize(pi);
+
+            for(z = 0; z< clmsrProfileP->sub_chunk_no; z++)
+            {
+                if(order[z]==hm_w)
+                {
+                    get_plane_vector(q, t, z,z_vec);
+                    //__decode_erasures(erasure_locations, z, z_vec, data_ptrs, code_ptrs, ss_size, B_buf, pi, pieceSize, pieceSizeMax, );
+                    for(x=0; x < q; x++)
+                    {
+                        for(y=0; y<t; y++)
+                        {
+                            //todo: may not need because A1 is erasured error!!!
+                            if( erased[y*q+x] == 1 )
+                            {
+                                node_xy = y*q+x; 
+                                node_sw = y*q+z_vec[y];
+                                z_sw = z + (x - z_vec[y]) * (int)pow(q,t-1-y);
+
+
+                                
+                                A1 = (node_xy < k+nu) ? &data_ptrs[node_xy][z*ss_size + pieceOffset] : &code_ptrs[node_xy-k-nu][z*ss_size + pieceOffset];
+                                A2 = (node_sw < k+nu) ? &data_ptrs[node_sw][z_sw*ss_size + pieceOffset] : &code_ptrs[node_sw-k-nu][z_sw*ss_size + pieceOffset];
+
+                                if(erased[node_xy] == 0)
+                                { //if not an erasure 
+                                    if(z_vec[y] != x)
+                                    {//not a dot
+                                        //get_B1_fromA1A2(&B_buf[node_xy][z*ss_size + pieceOffset], A1, A2, ss_size);
+                                        CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy],                A1, pieceSize, cudaMemcpyHostToDevice) );
+                                        CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy] + pieceSizeMax, A2, pieceSize, cudaMemcpyHostToDevice) );
+                                        
+                                        //todo: find a parameter
+                                        pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( gf_table, clmsrProfileP->gamma, planePOnGpuK, node_xy, A1A2_B1, pieceSize, pieceSizeMax, clmsrProfileP->w );
+
+                                    }
+                                    else
+                                    { //dot
+                                        CUDA_CHECK_RETURN( cudaMemcpy(planeOnGpu[node_xy] + pieceSizeMax*2, A1, pieceSize, cudaMemcpyHostToDevice) );
+                                        //memcpy(&B_buf[node_xy][z*ss_size  + pieceOffset], A1, ss_size);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    //Decode in B's
+                   /* jerasure_matrix_decode_substripe(k+nu, m, w, matrix, 0, erasure_locations, 
+                                                   &B_buf[0], &B_buf[k+nu], z, ss_size);
+                   */
+                    planeKernel<<<planeKernelGridSize,planeKernelBlockSize,(k*k + k * m)*sizeof(char),streams[1]>>>(gf_table, \
+                        k, clmsrProfileP->nu, m, clmsrProfileP->w, q, t,\
+                        clmsrGpuP->matrix_gpu, decode_matrix_gpu, dm_ids_gpu, erasure_loc_data_gpu, erased_data_size, erasure_loc_coding_gpu, erased_coding_size, planePOnGpuK, pieceSize, pieceSizeMax\
+                     );
+                    //end
+
+                }
+            }
+
+        /* Need to get A's from B's*/
+            for(z = 0; z< clmsrProfileP->sub_chunk_no; z++)
+            {
+                if(order[z]==hm_w)
+                {
+                    get_plane_vector(q, t, z, z_vec);
+                    for(i = 0; i<num_erasures; i++)
+                    {
+                        x = erasures[i].x;
+                        y = erasures[i].y;
+                        node_xy = y*q+x;
+                        node_sw = y*q+z_vec[y];
+                        z_sw = z + ( x - z_vec[y] ) * (int)pow(q,t-1-y);
+
+                        A1 = (node_xy < k+nu) ? &data_ptrs[node_xy][z*ss_size + pieceOffset] : &code_ptrs[node_xy-k-nu][z*ss_size  + pieceOffset];
+                        A2 = (node_sw < k+nu) ? &data_ptrs[node_sw][z_sw*ss_size + pieceOffset] : &code_ptrs[node_sw-k-nu][z_sw*ss_size + pieceOffset];
+
+                        if(z_vec[y] != x)
+                        { //not a hole-dot pair
+                            if(is_erasure_type_1(m, i, erasures, z_vec))
+                            {
+                                pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],B1A2_A1, pieceSize, pieceSizeMax, clmsrProfileP->w);
+                                        
+                                        //debug
+                                CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
+                                        
+                                CUDA_CHECK_RETURN( cudaMemcpy( A1, planeOnGpu[erasure_locations[i]], pieceSize, cudaMemcpyDeviceToHost) );
+                                //get_type1_A(A1, &B_buf[node_xy][z*ss_size], A2, ss_size);
+                            }
+                            else
+                            {
+              // case for type-2 erasure, there is a hole-dot pair in this y column
+                                assert(erased[node_sw]==1);
+                                //pieceKernelGamma<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],GAMMA_INVERSE, pieceSize, pieceSizeMax, clmsrProfileP->w);
+                                pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],B1B2_A1, pieceSize, pieceSizeMax, clmsrProfileP->w);            
+                                            //debug
+                                CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
+
+                                CUDA_CHECK_RETURN( cudaMemcpy( A1, planeOnGpu[erasure_locations[i]], pieceSize, cudaMemcpyDeviceToHost) );
+                                //get_A1_fromB1B2(A1, &B_buf[node_xy][z*ss_size], &B_buf[node_sw][z_sw*ss_size], ss_size);
+                            }
+                        }
+                        else
+                        { //for type 0 erasure (hole-dot pair)  copy the B1 to A1
+                            CUDA_CHECK_RETURN( cudaMemcpy( A1, planeOnGpu[erasure_locations[i]] + pieceSizeMax*2, pieceSize, cudaMemcpyDeviceToHost) );   
+                            //memcpy(A1, &B_buf[node_xy][z*ss_size], ss_size);
+                        }
+
+                    }//get A's from B's
+                }
+            }//plane
+
+            pieceOffset += pieceSize;
+        }
+    }//hm_w, order
+
     return 0;
 }
 
@@ -1251,7 +1553,7 @@ void SingleGpuRoute::deinit()
 
 int SingleGpuRoute::init_gf_log_w8_gpu( cudaStream_t stream )
 {
-    int ret = copy_log_to_gpu_w8( gf_table );
+/*    int ret = copy_log_to_gpu_w8( gf_table );
 
     unsigned char log_temp[256];
     unsigned char anti_temp[256*2];
@@ -1276,7 +1578,7 @@ int SingleGpuRoute::init_gf_log_w8_gpu( cudaStream_t stream )
     }*/
 
 
-    return ret;
+    return copy_log_to_gpu_w8( gf_table );
 }
 
 void SingleGpuRoute::compareGf()

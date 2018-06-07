@@ -543,7 +543,8 @@ private:
                          ostream *ss);
  void group_repair_subchunks(map<int,int> &repair_subchunks, list<pair<int,int> > &grouped_subchunks);
   int encode_systematic(char** data_ptrs, char** code_ptrs, int size);
-  int decode_layered(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size);
+  int decode_layered    (int* erasure_locations, char** data_ptrs, char** code_ptrs, int size);
+  int decode_layered_gpu(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size);
   int repair_lost_chunks(map<int,char*> &repaired_data, set<int> &aloof_nodes,
                           map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind);
   int repair_lost_chunks_gpu(map<int,char*> &repaired_data, set<int> &aloof_nodes,
