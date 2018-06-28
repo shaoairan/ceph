@@ -5,7 +5,7 @@
 int erasures_to_erased_gpu(int k, int m, int *erasures, int *erased )
 { 
 
-	debughou( "fuck I am in erasures_to_erased_gpu!!!!!!!!!!!!!!!!\n" );
+	//debughou( "fuck I am in erasures_to_erased_gpu!!!!!!!!!!!!!!!!\n" );
 
 	if( erased == NULL || erasures == NULL ) 
 	{
@@ -19,11 +19,11 @@ int erasures_to_erased_gpu(int k, int m, int *erasures, int *erased )
 	int t_non_erased;
 	int i;
 
-	debughou("erasures_location is: ==================================\n");
+/*	//debughou("erasures_location is: ==================================\n");
 	for (i = 0; erasures[i] != -1; i++) {
 		debughou("%d,", erasures[i] );
 	}	
-	debughou("\n");
+	debughou("\n");*/
 
 
 

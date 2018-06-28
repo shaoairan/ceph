@@ -33,6 +33,7 @@
 #include "erasure-code/ErasureCodePlugin.h"
 #include "erasure-code/ErasureCode.h"
 #include "ceph_clmsr_benchmark.h"
+#include "time.h"
 
 namespace po = boost::program_options;
 
@@ -177,6 +178,8 @@ int ClmsrBench::run() {
     return encode();
   else if( workload == "repair" )
     return repair();
+  else if( workload == "check" )
+    return check();
   else
     return decode();
 }
@@ -209,6 +212,18 @@ int ClmsrBench::encode()
   bufferlist in;
   in.append(string(in_size, 'X'));
   in.rebuild_aligned(ErasureCode::SIMD_ALIGN);
+
+  cout << "before encode >>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>\n";
+
+  for( int i = 0; i < in_size; i ++ )
+  {
+    //cout << in.c_str()[i] << ',';
+    printf("%c,", in.c_str()[i]);
+  }
+
+  cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
+
+
   set<int> want_to_encode;
   for (int i = 0; i < k + m; i++) {
     want_to_encode.insert(i);
@@ -217,9 +232,29 @@ int ClmsrBench::encode()
   for (int i = 0; i < max_iterations; i++) {
     map<int,bufferlist> encoded;
     code = erasure_code->encode(want_to_encode, in, &encoded);
+
+    unsigned length =  encoded[0].length();
+    cout << "after encode >>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>\n";
+
+    for( int j = 0; j < m; j ++ )
+    {
+      printf("j: %d------------------------------\n",j );
+      
+      for( int i = 0; i < length; i ++ )
+      {
+        //cout << encoded[0].c_str()[i] << ',';
+        printf("%u,", (unsigned char)(encoded[k + j].c_str()[i]));
+      }
+      printf("-----------------------------------------------\n");
+    }
+    cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
+
     if (code)
       return code;
   }
+
+
+
   utime_t end_time = ceph_clock_now();
   cout << (end_time - begin_time) << "\t" << (max_iterations * (in_size / 1024)) <<"KB" << endl;
   return 0;
@@ -423,6 +458,12 @@ int ClmsrBench::repair()
   return 0;
 }
 
+
+int ClmsrBench::check()
+{
+  return 0;
+}
+
 int ClmsrBench::decode()
 {
   FT(ClmsrBench::decode);
@@ -444,6 +485,18 @@ int ClmsrBench::decode()
       << erasure_code->get_chunk_count() - erasure_code->get_data_chunk_count() << endl;
     return -EINVAL;
   }
+/*    bufferptr in_ptr(buffer::create_page_aligned(2048));
+    in_ptr.zero();
+    in_ptr.set_length(0);
+    const char *payload =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    in_ptr.append(payload, strlen(payload));
+    bufferlist in;
+    in.push_front(in_ptr);*/
   bufferlist in;
   in.append(string(in_size, 'X'));
   in.rebuild_aligned(ErasureCode::SIMD_ALIGN);
@@ -473,7 +526,8 @@ int ClmsrBench::decode()
   }
 
 
-
+  timespec t1, t2;
+  clock_gettime(CLOCK_MONOTONIC, &t1);
   utime_t begin_time = ceph_clock_now();
   for (int i = 0; i < max_iterations; i++) {
     if (exhaustive_erasures) {
@@ -502,6 +556,14 @@ int ClmsrBench::decode()
   }
   utime_t end_time = ceph_clock_now();
   cout << (end_time - begin_time) << "\t" << (max_iterations * (in_size / 1024))  << "KB" << endl;
+
+  clock_gettime(CLOCK_MONOTONIC, &t2);
+  long long deltaT = (t2.tv_sec - t1.tv_sec) * pow(10, 9) + t2.tv_nsec - t1.tv_nsec;
+
+  printf(">>>>>>>>>>>>>>time used: \n%lf s\n\n\n\n", (double)deltaT/pow(10, 9));
+
+  //check_correctness();
+
   return 0;
 }
 

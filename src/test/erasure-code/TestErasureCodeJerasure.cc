@@ -24,6 +24,7 @@
 #include "global/global_context.h"
 #include "common/config.h"
 #include "gtest/gtest.h"
+#include "time.h"
 
 
 template <typename T>
@@ -32,13 +33,15 @@ class ErasureCodeTest : public ::testing::Test {
 };
 
 typedef ::testing::Types<
-  ErasureCodeJerasureReedSolomonVandermonde,
+/*  ErasureCodeJerasureReedSolomonVandermonde,
   ErasureCodeJerasureReedSolomonRAID6,
   ErasureCodeJerasureCauchyOrig,
   ErasureCodeJerasureCauchyGood,
   ErasureCodeJerasureLiberation,
   ErasureCodeJerasureBlaumRoth,
-  ErasureCodeJerasureLiber8tion
+  ErasureCodeJerasureLiber8tion,*/
+  ErasureCodeJerasureCLMSR,
+  ErasureCodeJerasureCLMSR_GPU
 > JerasureTypes;
 TYPED_TEST_CASE(ErasureCodeTest, JerasureTypes);
 
@@ -108,6 +111,19 @@ TYPED_TEST(ErasureCodeTest, encode_decode)
 			  in.length() - length));
     }
 
+    {
+      int want_to_decode[] = { 0, 1 };
+      map<int, bufferlist> decoded;
+      EXPECT_EQ(0, jerasure.decode(set<int>(want_to_decode, want_to_decode+2),
+           encoded,
+           &decoded));
+      EXPECT_EQ(2u, decoded.size()); 
+      EXPECT_EQ(length, decoded[0].length());
+      EXPECT_EQ(0, memcmp(decoded[0].c_str(), in.c_str(), length));
+      EXPECT_EQ(0, memcmp(decoded[1].c_str(), in.c_str() + length,
+        in.length() - length));
+    }
+
     // two chunks are missing 
     {
       map<int, bufferlist> degraded = encoded;
@@ -125,9 +141,142 @@ TYPED_TEST(ErasureCodeTest, encode_decode)
       EXPECT_EQ(0, memcmp(decoded[0].c_str(), in.c_str(), length));
       EXPECT_EQ(0, memcmp(decoded[1].c_str(), in.c_str() + length,
 			  in.length() - length));
+
+      cout << "after decode >>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>\n";
+      for( int j = 0; j < decoded.size(); j++ )
+      {
+        printf("----------------------------chunk: %d\n", j );
+        for( int i = 0; i < length; i ++ )
+        {
+          //cout << in.c_str()[i] << ',';
+          printf("%u == %u ? %d, ", (unsigned char)(decoded[j].c_str()[i]),in.c_str() + j*length );
+        }
+      }
+      cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
     }
   }
 }
+
+TYPED_TEST(ErasureCodeTest, encode_repair)
+{
+  const char *per_chunk_alignments[] = { "false", "true" };
+  for (int per_chunk_alignment = 0 ;
+       per_chunk_alignment < 2;
+       per_chunk_alignment++) {
+    TypeParam jerasure;
+    ErasureCodeProfile profile;
+    profile["k"] = "4";
+    profile["m"] = "2";
+    profile["packetsize"] = "8";
+    profile["jerasure-per-chunk-alignment"] =
+      per_chunk_alignments[per_chunk_alignment];
+    jerasure.init(profile, &cerr);
+
+//profile.find("technique"
+    std::string t;
+    if (profile.find("technique") != profile.end())
+    {
+      t = profile.find("technique")->second;
+    }
+
+    if (t != "cl_msr" && t != "cl_msr_gpu" ) {
+      
+      printf("=======================I'm not========================================\n");
+      return;
+    }
+    else
+    {
+      printf("=======================I'm========================================\n");
+      bufferptr in_ptr(buffer::create_page_aligned(LARGE_ENOUGH));
+      in_ptr.zero();
+      in_ptr.set_length(0);
+      const char *payload =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+      in_ptr.append(payload, strlen(payload));
+      bufferlist in;
+      in.push_front(in_ptr);
+      int want_to_encode[] = { 0, 1, 2, 3, 4, 5 };
+      map<int, bufferlist> encoded;
+      EXPECT_EQ(0, jerasure.encode(set<int>(want_to_encode, want_to_encode+6),
+           in,
+           &encoded));
+      EXPECT_EQ(6u, encoded.size());
+      unsigned length =  encoded[0].length();
+      EXPECT_EQ(0, memcmp(encoded[0].c_str(), in.c_str(), length));
+      EXPECT_EQ(0, memcmp(encoded[1].c_str(), in.c_str() + length,
+        in.length() - length));
+      EXPECT_EQ(0, memcmp(encoded[2].c_str(), in.c_str() + length*2,
+        length));
+      EXPECT_EQ(0, memcmp(encoded[3].c_str(), in.c_str() + length*3,
+        in.length() - length*3));
+
+//      // all chunks are available
+ //     {
+ //       int want_to_decode[] = { 0 };
+ //       map<int, bufferlist> decoded;
+  //      //erasure_code->decode2(want_to_read, encoded, &decoded,0);
+  //      EXPECT_EQ(0, jerasure.decode2(set<int>(want_to_decode, want_to_decode+1),
+  //           encoded,
+  //           &decoded, 0));
+  //      EXPECT_EQ(1u, decoded.size()); 
+   //     EXPECT_EQ(length, decoded[0].length());
+   //     EXPECT_EQ(0, memcmp(decoded[0].c_str(), in.c_str(), length));
+    //  }
+
+      // two chunks are missing 
+      map<int, list<pair<int,int>>> needed;
+      // minimum_to_decode2(const set<int> &want_to_read,
+      //                             const set<int> &available,
+      //                             map<int, list<pair<int,int>>> *minimum)
+
+      {
+        map<int, bufferlist> degraded;
+        degraded.clear();
+
+        for( map<int, bufferlist>::iterator it = encoded.begin(); it != encoded.end(); it ++ )
+        {
+          if( it->first != 0 )
+          {
+            bufferptr chunk(buffer::create_aligned(length/2, 32));
+            it->second.copy(0, length/2, chunk.c_str());
+            degraded[it->first].push_back(std::move(chunk));
+          }
+        }
+
+        EXPECT_EQ(5u, degraded.size());
+        int want_to_decode[] = { 0 };
+        map<int, bufferlist> decoded;
+
+
+        jerasure.minimum_to_decode2(set<int>(want_to_decode, want_to_decode+1), set<int>(want_to_encode+1, want_to_encode+6), &needed );
+
+        EXPECT_EQ(0, jerasure.decode2(set<int>(want_to_decode, want_to_decode+1),
+             degraded,
+             &decoded,0));
+        // always decode all, regardless of want_to_decode
+        //EXPECT_EQ(4u, decoded.size()); 
+        EXPECT_EQ(length, decoded[0].length());
+        EXPECT_EQ(length/2, degraded[1].length());
+        EXPECT_EQ(0, memcmp(decoded[0].c_str(), in.c_str(), length));
+      }
+    }
+  }
+}
+
 
 TYPED_TEST(ErasureCodeTest, minimum_to_decode)
 {

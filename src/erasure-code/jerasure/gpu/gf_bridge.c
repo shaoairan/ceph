@@ -25,7 +25,7 @@ gfp_w8_log_gpu get_w8_log_tables()
                         int arg1,
                         int arg2)*/
 
-      printf(" get gfp failed, creating gf-field!! ");
+      //printf(" get gfp failed, creating gf-field!! ");
       gfp_w8_log = galois_init_field(8,
                         GF_MULT_LOG_TABLE,
                         GF_REGION_DEFAULT,
@@ -36,7 +36,7 @@ gfp_w8_log_gpu get_w8_log_tables()
       //return 1;
     }
 
-    printf(" get gfp succeed~~~~~~~~~~~~~~~ ");
+    //printf(" get gfp succeed~~~~~~~~~~~~~~~ ");
 
 /*    struct gf_w8_logtable_data {
         uint8_t         log_tbl[GF_FIELD_SIZE];

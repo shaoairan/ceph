@@ -13,9 +13,9 @@
 #define get_arrs() 	static __shared__ unsigned char sh_log[GF_FIELD_SIZE_8_GPU]; static __shared__ unsigned char sh_antilog[GF_FIELD_SIZE_8_GPU*2]; static __shared__ unsigned char sh_inv[GF_FIELD_SIZE_8_GPU]
 #define init_table( gf_table, threadIdx, blockDim )	load_tables(gf_table , threadIdx, blockDim, sh_log, sh_antilog, sh_inv)
 
-#define galois_single_divide_gpu_logtable_w8( a, b )		(a == 0 || b == 0) ? 0 : sh_antilog[sh_log[a] - sh_log[b] + (GF_MULT_GROUP_SIZE_8_GPU)]
-#define galois_single_multiply_gpu_logtable_w8( a, b )		(a == 0 || b == 0) ? 0 : sh_antilog[(unsigned)(sh_log[a] + sh_log[b])]
-#define galois_single_inverse_gpu_logtable_w8 (a)			sh_inv[a]
+#define galois_single_divide_gpu_logtable_w8( a, b )		(((a) == 0 || (b) == 0) ? 0 : sh_antilog[sh_log[(a)] - sh_log[(b)] + (GF_MULT_GROUP_SIZE_8_GPU)])
+#define galois_single_multiply_gpu_logtable_w8( a, b )		(((a) == 0 || (b) == 0) ? 0 : sh_antilog[(unsigned)(sh_log[(a)] + sh_log[(b)])])
+#define galois_single_inverse_gpu_logtable_w8 (a)			(sh_inv[(a)])
 #define set_gf_table( gf_table ) get_arrs(); init_table( gf_table, threadIdx, blockDim )
 
 /*__device__ inline void load_tables(uint3 threadIdx, const dim3 blockDim, char* sh_log, char* sh_antilog, char* sh_inv );
@@ -82,12 +82,12 @@ __device__ inline void print_table( int idx, unsigned char* sh_log, unsigned cha
   {
       for( int i = 0; i < 256; i ++ )
         {
-            printf( "&====: %d: %d----%d\n", i, sh_log[i], sh_antilog[i]);
+            printf( "&====: %d: %u----%u\n", i, sh_log[i], sh_antilog[i]);
         }
 
         for( int i = 256; i < 256*2; i ++ )
         {
-            printf( "&==&==: %d: %d\n", i, sh_antilog[i] );            
+            printf( "&==&==: %u: %u\n", i, sh_antilog[i] );            
         }
   }
 }

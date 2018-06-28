@@ -259,7 +259,7 @@ int ErasureCodeJerasureCLMSR_GPU::parse(ErasureCodeProfile &profile,
 						     ostream *ss)
 {
   FT(ErasureCodeJerasureCLMSR_GPU::parse);
-  printf("======================doing cuda!!");
+  //printf("======================doing cuda!!");
 /*  void *myGpuLibrary = dlopen("libcephCudaLibTest.so", RTLD_NOW);
   if (!myGpuLibrary) {
     *ss << "load dlopen(" << " ==libcephCudaLibTest.so== " << "): " << dlerror();
@@ -271,8 +271,8 @@ int ErasureCodeJerasureCLMSR_GPU::parse(ErasureCodeProfile &profile,
   docalDlopen();*/
   //docal666();
   
-  docal();
-  printf("======================cuda done!!");
+  //docal();
+//  printf("======================cuda done!!");
 
   int err = 0;
   err |= ErasureCodeJerasure::parse(profile, ss);
@@ -1015,14 +1015,14 @@ int ErasureCodeJerasureCLMSR_GPU::encode_systematic(char** data_ptrs, char** cod
   }
   erasure_locations[numerased] = -1;
 
-  int ret = decode_layered(erasure_locations, data_ptrs, code_ptrs, size);
+  int ret = decode_layered_gpu(erasure_locations, data_ptrs, code_ptrs, size);
   return ret;
 }
 
 int ErasureCodeJerasureCLMSR_GPU::decode_layered(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size)
 {
 
-  printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\n****************\n", gamma,q,t,d );
+  printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\nsize: %d\n****************\n", gamma,q,t,d, size );
   FT(ErasureCodeJerasureCLMSR_GPU::decode_layered);
   int i;
   char* A1 = NULL;
@@ -1573,7 +1573,7 @@ int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaire
     chunkSize, subChunkSize, (MdsType) mds_block );
 
 //sadasd
-    printf("I fuck all this stupid\n");
+    //printf("I fuck all this stupid\n");
     ClmsrGpu clmsrGpu(clmsrProfile);
     SingleGpuRoute singleGpuRoute(0, &clmsrGpu, 0, clmsrProfile.subChunkSize);
     //init_gf_log_w8_gpu( singleGpuRoute.streams[0] );
@@ -1593,7 +1593,7 @@ int ErasureCodeJerasureCLMSR_GPU::decode_layered_gpu(int* erasure_locations, cha
 {
 
   FT(ErasureCodeJerasureCLMSR_GPU::decode_layered_gpu);
-  printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\n****************\n", gamma,q,t,d );
+  //printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\n****************\n", gamma,q,t,d );
   int i;
 
 
@@ -1659,14 +1659,14 @@ int ErasureCodeJerasureCLMSR_GPU::decode_layered_gpu(int* erasure_locations, cha
   size, ss_size, (MdsType) mds_block );
 
 //sadasd
-  printf("I fuck all this stupid\n");
+//  printf("I fuck all this stupid\n");
   ClmsrGpu clmsrGpu( clmsrProfile );
 
   clmsrGpu.pinAllMemoryForDecode( data_ptrs, size, code_ptrs, size );
 
   SingleGpuRoute singleGpuRoute(0, &clmsrGpu, 0, clmsrProfile.subChunkSize);
   //init_gf_log_w8_gpu( singleGpuRoute.streams[0] );
-  int ret = singleGpuRoute.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size, clmsrGpu.B_buf);
+  int ret = singleGpuRoute.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size);
 
   clmsrGpu.unpinAllMemoryForDecode( data_ptrs, code_ptrs );
 

@@ -28,8 +28,11 @@ extern "C" {
 #include "galois.h"
 #include "cauchy.h"
 #include "liberation.h"
+#include "time.h"
 }
 
+
+//debug 
 #define debughouTab(num, fmt, arg...)     for(int o = 0; o < num; o ++) printf("\t");     printf((const char*)fmt, ##arg)
 
 
@@ -151,6 +154,7 @@ unsigned int ErasureCodeJerasure::get_chunk_size(unsigned int object_size) const
       chunk_size++;
     dout(20) << "get_chunk_size: chunk_size " << chunk_size
 	     << " must be modulo " << alignment << dendl; 
+    
     assert(alignment <= chunk_size);
     unsigned modulo = chunk_size % alignment;
     if (modulo) {
@@ -158,11 +162,15 @@ unsigned int ErasureCodeJerasure::get_chunk_size(unsigned int object_size) const
 	       << " padded to " << chunk_size + alignment - modulo << dendl;
       chunk_size += alignment - modulo;
     }
+
+    debughouTab(1,  "\n\nper_chunk_alignment========================\n\nchunk_size:%d\nalignment: %d\nobject_size: %d\nk: %d\n\n", chunk_size, alignment,object_size,k );
     return chunk_size;
   } else {
     unsigned tail = object_size % alignment;
     unsigned padded_length = object_size + ( tail ?  ( alignment - tail ) : 0 );
     assert(padded_length % (k*sub_chunk_no) == 0);
+    debughouTab(1,  "\n\nno no no per_chunk_alignment========================\n\nchunk_size:%d\nobject_size: %d\nk: %d\n\n", padded_length / k,object_size,k );
+    
     return padded_length / k;
   }
 }
@@ -808,7 +816,7 @@ int ErasureCodeJerasureCLMSR::parse(ErasureCodeProfile &profile,
 						     ostream *ss)
 {
   FT(ErasureCodeJerasureCLMSR::parse);
-  printf("======================doing cuda!!");
+  //printf("======================doing cuda!!");
 /*  void *myGpuLibrary = dlopen("libcephCudaLibTest.so", RTLD_NOW);
   if (!myGpuLibrary) {
     *ss << "load dlopen(" << " ==libcephCudaLibTest.so== " << "): " << dlerror();
@@ -820,8 +828,8 @@ int ErasureCodeJerasureCLMSR::parse(ErasureCodeProfile &profile,
   docalDlopen();*/
   //docal666();
   
-  docal();
-  printf("======================cuda done!!");
+  //docal();
+//  printf("======================cuda done!!");
 
   int err = 0;
   err |= ErasureCodeJerasure::parse(profile, ss);
@@ -934,6 +942,7 @@ void ErasureCodeJerasureCLMSR::prepare()
 int ErasureCodeJerasureCLMSR::minimum_to_decode2(const set<int> &want_to_read,
                                   const set<int> &available,
                                   map<int, list<pair<int,int>>> *minimum){
+  FT( ErasureCodeJerasureCLMSR::minimum_to_decode2 );
   set<int> minimum_shard_ids;
 
   if(is_repair(want_to_read, available)) {
@@ -1154,9 +1163,26 @@ void ErasureCodeJerasureCLMSR::group_repair_subchunks(map<int,int> &repair_subch
       end = *r;
     }
   }
+
   if(start != -1) {
     grouped_subchunks.push_back(make_pair(start,end-start+1));
   }
+
+  debughouTab(0,"\n***********************repair_subchunks:\n");
+  for( map<int,int>::iterator t = repair_subchunks.begin(); t != repair_subchunks.end(); t ++ )
+  {
+    debughouTab(0, " %d->%d\n", t->first, t->second );
+  }
+
+  debughouTab(0,"\n************************************%u\n", repair_subchunks.size());
+
+  debughouTab(0,"\n***********************grouped_subchunks:\n");
+  for( list<pair<int,int> >::iterator t = grouped_subchunks.begin(); t != grouped_subchunks.end(); t ++ )
+  {
+    debughouTab(0, " %d->%d\n", t->first, t->second );
+  }
+
+  debughouTab(0,"\n************************************%u\n", grouped_subchunks.size());
 }   
 
 int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
@@ -1324,7 +1350,7 @@ int ErasureCodeJerasureCLMSR::repair(const set<int> &want_to_read,
         aloof_nodes.insert(aloof_node_id);
       }else{
         bufferptr ptr(buffer::create_aligned(chunksize, SIMD_ALIGN));
-      
+        printf("=============In repair: \nchunksize: %d\nsub_chunk_no: %d\nsub_chunksize: %d\nrepair_blocksize: %d\nrepair_sub_chunk_no: %d\n\n",  chunksize, sub_chunk_no, sub_chunksize, repair_blocksize, repair_sub_chunk_no );
         int lost_node_id = (i < k) ? i : i+nu;
    
         (*repaired)[i].push_front(ptr);
@@ -1623,9 +1649,23 @@ int ErasureCodeJerasureCLMSR::encode_systematic(char** data_ptrs, char** code_pt
 
 int ErasureCodeJerasureCLMSR::decode_layered(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size)
 {
-
-  printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\n****************\n", gamma,q,t,d );
+  //debug
+  printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\nsize: %d\n****************haha\n", gamma,q,t,d,size );
   FT(ErasureCodeJerasureCLMSR::decode_layered);
+  /*printf("check in decode_layered>>>>>>>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
+  for( int j = 0; j < k; j ++ )
+  {
+    printf("j: %d----------------\n", j
+      );
+    for( int i = 0; i < size; i ++ )
+    {
+        printf("%c,", data_ptrs[j][i] );
+    }
+    printf("----------------------------------------------------------------\n");
+  }
+  printf("check in decode_layered>>>>>>>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");*/
+
+
   int i;
   char* A1 = NULL;
   char* A2 = NULL;
@@ -1684,15 +1724,29 @@ int ErasureCodeJerasureCLMSR::decode_layered(int* erasure_locations, char** data
 
   for(hm_w = 0; hm_w <= max_weight; hm_w++){
     for(z = 0; z<sub_chunk_no; z++){
+      //std::cout << ">>>>> z: " << z << std::endl;
       if(order[z]==hm_w){
 	decode_erasures(erasure_locations, z, z_vec, data_ptrs, code_ptrs, ss_size, B_buf);
       }
     }
 
+    /*//debug
+    cout << "hm_w: " << hm_w << "//////////////////////////////////////////////////////////////////////////\n";
+    cout << "//////////////////////////////////////////////////////////////////////////\n";
+    cout << "//////////////////////////////////////////////////////////////////////////\n";
+    cout << "//////////////////////////////////////////////////////////////////////////\n";
+    cout << "//////////////////////////////////////////////////////////////////////////\n";*/
+    /*cout << "get here~~~~~~~~~~~\n";
+          //debug
+    return 0;*/
+    //return 0;
     /* Need to get A's from B's*/
     for(z = 0; z<sub_chunk_no; z++){
       if(order[z]==hm_w){
 	get_plane_vector(z,z_vec);
+
+    //debug
+    //printf(">>>>>>>>>>>>>>in getting A from B %d\n", z);
 	for(i = 0; i<num_erasures; i++){
 	  x = erasures[i].x;
 	  y = erasures[i].y;
@@ -1701,19 +1755,50 @@ int ErasureCodeJerasureCLMSR::decode_layered(int* erasure_locations, char** data
           z_sw = z + ( x - z_vec[y] ) * pow_int(q,t-1-y);
 
 	  A1 = (node_xy < k+nu) ? &data_ptrs[node_xy][z*ss_size] : &code_ptrs[node_xy-k-nu][z*ss_size];
-          A2 = (node_sw < k+nu) ? &data_ptrs[node_sw][z_sw*ss_size] : &code_ptrs[node_sw-k-nu][z_sw*ss_size];
+    A2 = (node_sw < k+nu) ? &data_ptrs[node_sw][z_sw*ss_size] : &code_ptrs[node_sw-k-nu][z_sw*ss_size];
 
 	  if(z_vec[y] != x){ //not a hole-dot pair
 	    if(is_erasure_type_1(i, erasures, z_vec)){
+        //debughouTab(1,"============A1 from B1 A2\n");
 	      get_type1_A(A1, &B_buf[node_xy][z*ss_size], A2, ss_size);
 	    } else{
 	      // case for type-2 erasure, there is a hole-dot pair in this y column
+              //debughouTab(1,"============A1 from B1 B2\n");
               assert(erased[node_sw]==1);
               get_A1_fromB1B2(A1, &B_buf[node_xy][z*ss_size], &B_buf[node_sw][z_sw*ss_size], ss_size);
 	    }
 	  } else { //for type 0 erasure (hole-dot pair)  copy the B1 to A1
+            //debughouTab(1,"============A1 from B1 red\n");
             memcpy(A1, &B_buf[node_xy][z*ss_size], ss_size);
           }
+
+          /*printf("\n\nfuck===================================node_xy: %d data( size %d ):\n\n", node_xy, ss_size );
+          char* B1 = &B_buf[node_xy][z*ss_size];
+          char* B2 = &B_buf[node_sw][z*ss_size];
+          for( int i = 0; i < ss_size; i ++ )
+          {
+            //cout << A1[i] << "\t";
+            printf("%u,", (unsigned char)A1[i] );
+          }
+          printf("\nA2--------------------------------------------------------------\n");
+          for( int i = 0; i < ss_size; i ++ )
+          {
+            //cout << A1[i] << "\t";
+            printf("%u,", (unsigned char)A2[i] );
+          }
+          printf("\nB1--------------------------------------------------------------\n");
+          for( int i = 0; i < ss_size; i ++ )
+          {
+            //cout << A1[i] << "\t";
+            printf("%u,", (unsigned char)B1[i] );
+          }          
+          printf("\nB2--------------------------------------------------------------\n");
+          for( int i = 0; i < ss_size; i ++ )
+          {
+            //cout << A1[i] << "\t";
+            printf("%u,", (unsigned char)B2[i] );
+          }
+          printf("\n\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n");*/
 
 	}//get A's from B's
       }
@@ -1745,6 +1830,9 @@ void ErasureCodeJerasureCLMSR::set_planes_sequential_decoding_order(int* order, 
 void ErasureCodeJerasureCLMSR::decode_erasures(int* erasure_locations, int z, int* z_vec,
                             char** data_ptrs, char** code_ptrs, int ss_size, char** B_buf)
 {
+
+  //FT(ErasureCodeJerasureCLMSR::decode_erasures);
+
   int x, y;
   int node_xy;
   int node_sw;
@@ -1771,6 +1859,27 @@ void ErasureCodeJerasureCLMSR::decode_erasures(int* erasure_locations, int z, in
       if(erased[node_xy] == 0){ //if not an erasure 
 	if(z_vec[y] != x){//not a dot
           get_B1_fromA1A2(&B_buf[node_xy][z*ss_size], A1, A2, ss_size);
+
+/*          printf("\n\nfuck===================================node_xy: %d data( size %d ):\n\n", node_xy, ss_size );
+          char* B1 = &B_buf[node_xy][z*ss_size];
+          for( int i = 0; i < ss_size; i ++ )
+          {
+            //cout << A1[i] << "\t";
+            printf("%u,", (unsigned char)A1[i] );
+          }
+          printf("\nA2--------------------------------------------------------------\n");
+          for( int i = 0; i < ss_size; i ++ )
+          {
+            //cout << A1[i] << "\t";
+            printf("%u,", (unsigned char)A2[i] );
+          }          
+          printf("\nB1--------------------------------------------------------------\n");
+          for( int i = 0; i < ss_size; i ++ )
+          {
+            //cout << A1[i] << "\t";
+            printf("%u,", (unsigned char)B1[i] );
+          }
+          printf("\n\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n");*/
 	} else { //dot
           memcpy(&B_buf[node_xy][z*ss_size], A1, ss_size);
         }
@@ -1778,9 +1887,43 @@ void ErasureCodeJerasureCLMSR::decode_erasures(int* erasure_locations, int z, in
     }
   }
 
+  //debug
+/*  for(x=0; x < q; x++){
+  for(y=0; y<t; y++){
+      node_xy = y*q+x; 
+      node_sw = y*q+z_vec[y];
+      z_sw = z + (x - z_vec[y]) * pow_int(q,t-1-y);
+
+      char* B1 = &B_buf[node_xy][z*ss_size];
+      printf("\n\n===================================node_xy: %d data( size %d ):\n\n", node_xy, ss_size );
+      for( int i = 0; i < ss_size; i ++ )
+      {
+        printf("%c\n", (unsigned char) B1[i] );
+      }
+      printf("\n\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n");
+    }
+  }*/
+
   //Decode in B's
   jerasure_matrix_decode_substripe(k+nu, m, w, matrix, 0, erasure_locations, 
                                    &B_buf[0], &B_buf[k+nu], z, ss_size);
+
+/*  for(x=0; x < q; x++){
+    for(y=0; y<t; y++){
+        node_xy = y*q+x;
+        if(erased[node_xy] == 1)
+        {
+            char* B1 = &B_buf[node_xy][z*ss_size];
+            printf("\n\nFUCK===================================node_xy: %d data( size %d ):\n\n", node_xy,ss_size );
+            printf("\nB1--------------------------------------------------------------\n");
+            for( int i = 0; i < ss_size; i ++ )
+            {
+                printf("%u,", (unsigned char) B1[i] );
+            }
+            printf("\n\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n");
+        }
+    }
+  }*/
 
   free(erased);
 }
@@ -1975,6 +2118,14 @@ void ErasureCodeJerasureCLMSR::get_A1_fromB1B2(char* A1, char* B1, char* B2,  in
   char* dest[1];
   dest[0] = A1;
 
+  //debug
+  /*printf(">>>> tmatrix[0]: %d, tmatrix[1]: %d\n", tmatrix[0], tmatrix[1] );
+  debughouTab(1, "gamma: %d\n", gamma);
+  debughouTab(1, "galois_single_multiply_gpu_logtable_w8(gamma, gamma): %d\n", gamma_square);
+  debughouTab(1, "1^(gamma, gamma): %d\n", 1 ^ gamma_square);
+  debughouTab(1, "tmatrix[0]: %d\n", tmatrix[0]);*/
+
+
   jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
 
 }
@@ -2083,10 +2234,15 @@ int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int
   dm_ids = NULL;
   decoding_matrix = NULL;
 
+  //
+  //std::cout << "edd: " << edd << " row_k_ones: "<< row_k_ones << " tt: " << (!row_k_ones || erased[k]) << std::endl;
+
   if (edd > 1 || (edd > 0 && (!row_k_ones || erased[k]))) {
+    printf(">>>>>>>>>>>>making decoding_matrix\n");
     dm_ids = talloc(int, k);
     if (dm_ids == NULL) {
       free(erased);
+      printf("fuck your code is wrong and you still published the paper************************************************");
       return -1;
     }
 
@@ -2094,6 +2250,7 @@ int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int
     if (decoding_matrix == NULL) {
       free(erased);
       free(dm_ids);
+      printf("fuck your code is wrong and you still published the paper************************************************");
       return -1;
     }
 
@@ -2105,6 +2262,47 @@ int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int
       return -1;
     }
   }
+  else
+  {
+    printf(">>>>>>>>>>>>not making decoding_matrix\n");
+  }
+
+    /*//debug
+    printf(">>>>>>>> fuck, matrix:\n");
+    for( int i = 0; i < k*m; i ++ )
+    {
+        printf("%d: %d\t", i, matrix[i] );
+    }*/
+    
+    /*dm_ids = talloc(int, k);
+    if (dm_ids == NULL) {
+      free(erased);
+      printf("fuck your code is wrong and you still published the paper************************************************");
+      return -1;
+    }
+
+    decoding_matrix = talloc(int, k*k);
+    if (decoding_matrix == NULL) {
+      free(erased);
+      free(dm_ids);
+      printf("fuck your code is wrong and you still published the paper************************************************");
+      return -1;
+    }
+
+    if (jerasure_make_decoding_matrix(k, m, w, matrix, erased, decoding_matrix, dm_ids) < 0) {
+      free(erased);
+      free(dm_ids);
+      free(decoding_matrix);
+      printf("fuck your code is wrong and you still published the paper************************************************");
+      return -1;
+    }
+
+    printf("\n decoding_matrix: \n");
+    for( int i = 0; i < k*k; i ++ )
+    {
+        printf("%d: %d\t", i, decoding_matrix[i] );
+    }
+    printf("\n<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n");*/
 
   /* Decode the data drives.
      If row_k_ones is true and coding device 0 is intact, then only decode edd-1 drives.

@@ -131,6 +131,11 @@ int ErasureCode::encode_prepare(const bufferlist &raw,
   unsigned int k = get_data_chunk_count();
   unsigned int m = get_chunk_count() - k;
   unsigned blocksize = get_chunk_size(raw.length());
+
+
+  //debug
+  printf("::::::::::in encode_prepare, blocksize: %d\n\n", blocksize);
+
   unsigned padded_chunks = k - raw.length() / blocksize;
   bufferlist prepared = raw;
 

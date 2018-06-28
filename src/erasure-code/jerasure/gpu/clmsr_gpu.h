@@ -107,8 +107,8 @@ public:
 	int deviceId;
 	cudaDeviceProp &deviceProp;
 	//complie debug
-	cudaStream_t streams[STREAM_NUM];//0: in, 1: cal, 3 out
-	cudaEvent_t events[EVENT_NUM];
+	cudaStream_t *streams;//0: in, 1: cal, 3 out
+	cudaEvent_t *events;
 	int subSubChunkStart;
 	int subSubChunkSize;
 
@@ -133,9 +133,11 @@ public:
 	int doRepair(map<int,char*> &repaired_data, set<int> &aloof_nodes,
                         map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind, char** B_buf );
 
-	int doDecode( int* erasure_locations, char** data_ptrs, char** code_ptrs, int* erased, \
-                            int num_erasures, int* order, int* weight_vec, int max_weight, int size, char ** B_buf);
+	/*int doDecode( int* erasure_locations, char** data_ptrs, char** code_ptrs, int* erased, \
+                            int num_erasures, int* order, int* weight_vec, int max_weight, int size, char ** B_buf);*/
 
+	int doDecode( int* erasure_locations, char** data_ptrs, char** code_ptrs, int* erased, \
+                            int num_erasures, int* order, int* weight_vec, int max_weight, int size );
     void deinit();
 	int init_gf_log_w8_gpu( cudaStream_t stream = 0 );
 

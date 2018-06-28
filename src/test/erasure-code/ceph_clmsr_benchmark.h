@@ -55,6 +55,7 @@ public:
   int decode();
   int repair();
   int encode();
+  int check();
 };
 
 #endif

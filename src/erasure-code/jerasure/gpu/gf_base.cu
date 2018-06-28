@@ -10,7 +10,7 @@ int copy_log_to_gpu_w8( gf_w8_log_gpu& gf_table,  cudaStream_t stream )
   	gfp_w8_log_gpu table_p = get_w8_log_tables();
  
 	//print_table(0, log, anti_log, inv);
-  	printf("geted, get_w8_log_tables\n");
+  	//printf("geted, get_w8_log_tables\n");
 
 
 
