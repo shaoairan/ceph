@@ -271,6 +271,13 @@ TYPED_TEST(ErasureCodeTest, encode_repair)
         //EXPECT_EQ(4u, decoded.size()); 
         EXPECT_EQ(length, decoded[0].length());
         EXPECT_EQ(length/2, degraded[1].length());
+
+        
+        for( int tt = 0; tt < length; tt ++ )
+        {
+            printf( "%d: %c vs %c\n",tt, decoded[0].c_str()[tt], in.c_str()[tt] );
+        }
+
         EXPECT_EQ(0, memcmp(decoded[0].c_str(), in.c_str(), length));
       }
     }

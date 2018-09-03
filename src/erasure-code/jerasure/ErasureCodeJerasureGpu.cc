@@ -614,6 +614,10 @@ int ErasureCodeJerasureCLMSR_GPU::is_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks){
 
   FT(ErasureCodeJerasureCLMSR_GPU::is_repair);
+
+
+  //debug new
+  return 1;
   //dout(10)<<__func__<< "want_to_read:" << want_to_read<<"available"<<available_chunks<<dendl;
   if(includes(
         available_chunks.begin(), available_chunks.end(), want_to_read.begin(), want_to_read.end()) ) return 0;
