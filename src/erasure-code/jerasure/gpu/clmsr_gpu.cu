@@ -978,7 +978,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
 
                         pieceKernelGamma<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],GAMMA_INVERSE, pieceSize, pieceSizeMax, clmsrProfileP->w);
                         //debug
-                        CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
+                        //CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
                         CUDA_CHECK_RETURN( cudaMemcpyAsync( A1, planeOnGpu[erasure_locations[i]],                  pieceSize, cudaMemcpyDeviceToHost, streams[erasure_locations[i]]) );
                         CUDA_CHECK_RETURN( cudaMemcpyAsync( A2, planeOnGpu[erasure_locations[i]] + pieceSizeMax*1, pieceSize, cudaMemcpyDeviceToHost, streams[erasure_locations[i]]) );
                         count_retrieved_sub_chunks = count_retrieved_sub_chunks + 2;
@@ -996,7 +996,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
 
                     pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[erasure_locations[i]]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],B1A2_A1, pieceSize, pieceSizeMax, clmsrProfileP->w);
                     //debug
-                    CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
+                    //CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
                     CUDA_CHECK_RETURN( cudaMemcpyAsync( A1, planeOnGpu[erasure_locations[i]], pieceSize, cudaMemcpyDeviceToHost, streams[erasure_locations[i]]) );
                     count_retrieved_sub_chunks++;
                 }
@@ -1012,7 +1012,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                     
                     pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[erasure_locations[i]]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],A1B1_A2, pieceSize, pieceSizeMax, clmsrProfileP->w);
                     //debug
-                    CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
+                    //CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
                     CUDA_CHECK_RETURN( cudaMemcpyAsync( A2, planeOnGpu[erasure_locations[i]] + pieceSizeMax*1, pieceSize, cudaMemcpyDeviceToHost,streams[erasure_locations[i]]) );
 
                     count_retrieved_sub_chunks++;
