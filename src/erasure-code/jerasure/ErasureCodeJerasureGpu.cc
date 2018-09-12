@@ -5,6 +5,7 @@
 #include "osd/osd_types.h"
 #include <sstream>
 #include "math.h"
+#include<omp.h>
 #include "gpu/clmsr_gpu.h"
 #include <thread>
 
@@ -1550,6 +1551,7 @@ int ErasureCodeJerasureCLMSR_GPU::jerasure_matrix_decode_substripe(int k, int m,
   return 0;
 }
 
+
 int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaired_data, set<int> &aloof_nodes,
                            map<int, char*> &helper_data, int repair_blocksize, map<int,int> &repair_sub_chunks_ind)
 {
@@ -1584,13 +1586,21 @@ int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaire
 
     clmsrGpu.pinAllMemoryForRepair( repaired_data, chunkSize, helper_data, subChunkSize*repair_sub_chunks_ind.size() );
 
-    SingleGpuRoute singleGpuRoute1(0, &clmsrGpu, 0, clmsrProfile.subChunkSize/2);
-    singleGpuRoute1.doRepair( repaired_data, aloof_nodes,
-                           helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrGpu.B_buf);
+    #pragma omp parallel num_threads( 2 )
+    {
+      int num = omp_get_thread_num();
 
-    SingleGpuRoute singleGpuRoute2(0, &clmsrGpu, clmsrProfile.subChunkSize/2, clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/2);
-    singleGpuRoute2.doRepair( repaired_data, aloof_nodes,
+      if( num == 0 ){
+          SingleGpuRoute singleGpuRoute1(0, &clmsrGpu, 0, clmsrProfile.subChunkSize/2);
+          singleGpuRoute1.doRepair( repaired_data, aloof_nodes,
                            helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrGpu.B_buf);
+      }else{
+        SingleGpuRoute singleGpuRoute2(0, &clmsrGpu, clmsrProfile.subChunkSize/2, clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/2);
+        singleGpuRoute2.doRepair( repaired_data, aloof_nodes,
+                                   helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrGpu.B_buf);
+      }
+      //cudaSetDevice( dev_id );
+    }
 
     clmsrGpu.unpinAllMemoryForRepair( repaired_data, helper_data );
 
@@ -1673,14 +1683,29 @@ int ErasureCodeJerasureCLMSR_GPU::decode_layered_gpu(int* erasure_locations, cha
 
   clmsrGpu.pinAllMemoryForDecode( data_ptrs, size, code_ptrs, size );
 
-  SingleGpuRoute singleGpuRoute1(0, &clmsrGpu, 0, clmsrProfile.subChunkSize/2);
-  int ret =  singleGpuRoute1.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size);
 
-  SingleGpuRoute singleGpuRoute2(0, &clmsrGpu, clmsrProfile.subChunkSize/2, clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/2);
-  int ret1 = singleGpuRoute2.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size);
+  #pragma omp parallel num_threads( 2 )
+    {
+      int num = omp_get_thread_num();
+
+      if( num == 0 ){
+        SingleGpuRoute singleGpuRoute1(0, &clmsrGpu, 0, clmsrProfile.subChunkSize/2);
+        int ret =  singleGpuRoute1.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size);
+      }else{
+        SingleGpuRoute singleGpuRoute2(0, &clmsrGpu, clmsrProfile.subChunkSize/2, clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/2);
+        int ret1 = singleGpuRoute2.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size);
+      }
+      //cudaSetDevice( dev_id );
+    }
+
+  // SingleGpuRoute singleGpuRoute1(0, &clmsrGpu, 0, clmsrProfile.subChunkSize/2);
+  // int ret =  singleGpuRoute1.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size);
+
+  // SingleGpuRoute singleGpuRoute2(0, &clmsrGpu, clmsrProfile.subChunkSize/2, clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/2);
+  // int ret1 = singleGpuRoute2.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size);
 
   clmsrGpu.unpinAllMemoryForDecode( data_ptrs, code_ptrs );
 
   free(erased);
-  return ret;
+  return 0;
 }
