@@ -6,6 +6,7 @@
 #include <sstream>
 #include "math.h"
 #include "gpu/clmsr_gpu.h"
+#include <thread>
 
 extern "C" {
 #include "jerasure.h"
@@ -1579,12 +1580,16 @@ int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaire
 //sadasd
     //printf("I fuck all this stupid\n");
     ClmsrGpu clmsrGpu(clmsrProfile);
-    SingleGpuRoute singleGpuRoute(0, &clmsrGpu, 0, clmsrProfile.subChunkSize);
     //init_gf_log_w8_gpu( singleGpuRoute.streams[0] );
 
     clmsrGpu.pinAllMemoryForRepair( repaired_data, chunkSize, helper_data, subChunkSize*repair_sub_chunks_ind.size() );
 
-    singleGpuRoute.doRepair( repaired_data, aloof_nodes,
+    SingleGpuRoute singleGpuRoute1(0, &clmsrGpu, 0, clmsrProfile.subChunkSize/2);
+    singleGpuRoute1.doRepair( repaired_data, aloof_nodes,
+                           helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrGpu.B_buf);
+
+    SingleGpuRoute singleGpuRoute2(0, &clmsrGpu, clmsrProfile.subChunkSize/2, clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/2);
+    singleGpuRoute2.doRepair( repaired_data, aloof_nodes,
                            helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrGpu.B_buf);
 
     clmsrGpu.unpinAllMemoryForRepair( repaired_data, helper_data );
@@ -1668,9 +1673,11 @@ int ErasureCodeJerasureCLMSR_GPU::decode_layered_gpu(int* erasure_locations, cha
 
   clmsrGpu.pinAllMemoryForDecode( data_ptrs, size, code_ptrs, size );
 
-  SingleGpuRoute singleGpuRoute(0, &clmsrGpu, 0, clmsrProfile.subChunkSize);
-  //init_gf_log_w8_gpu( singleGpuRoute.streams[0] );
-  int ret = singleGpuRoute.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size);
+  SingleGpuRoute singleGpuRoute1(0, &clmsrGpu, 0, clmsrProfile.subChunkSize/2);
+  int ret =  singleGpuRoute1.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size);
+
+  SingleGpuRoute singleGpuRoute2(0, &clmsrGpu, clmsrProfile.subChunkSize/2, clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/2);
+  int ret1 = singleGpuRoute2.doDecode( erasure_locations, data_ptrs, code_ptrs, erased, num_erasures, order, weight_vec, max_weight, size);
 
   clmsrGpu.unpinAllMemoryForDecode( data_ptrs, code_ptrs );
 

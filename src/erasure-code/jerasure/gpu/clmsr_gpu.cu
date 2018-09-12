@@ -714,6 +714,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
     const int q = clmsrProfileP->q, t = clmsrProfileP->t;
     const int qt = q * t;
     int* z_vec;
+    
 
     CUDA_CHECK_RETURN( cudaHostAlloc(&z_vec, t * sizeof(int), cudaHostAllocPortable) );
 
@@ -799,7 +800,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
     {
     get_plane_vector(q,t,*z, z_vec);
 
-    int pieceOffset = 0;
+    int pieceOffset = subSubChunkStart;
     int pieceSize = 0;
     init_matrix = false;
 
@@ -1095,19 +1096,19 @@ int SingleGpuRoute::doDecode \
 
     FT(SingleGpuRoute::doDecode);
 //debug
-    printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\nsize: %d\n****************haha\n", clmsrProfileP->gamma,clmsrProfileP->q,clmsrProfileP->t,clmsrProfileP->d,size );
-  printf("check in doDecode>>>>>>>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
-  for( int j = 0; j < clmsrProfileP->k; j ++ )
-  {
-    printf("j: %d----------------\n", j
-      );
-    for( int i = 0; i < size; i ++ )
-    {
-        printf("%c,", data_ptrs[j][i] );
-    }
-    printf("----------------------------------------------------------------\n");
-  }
-  printf("check in doDecode>>>>>>>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
+//     printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\nsize: %d\n****************haha\n", clmsrProfileP->gamma,clmsrProfileP->q,clmsrProfileP->t,clmsrProfileP->d,size );
+//   printf("check in doDecode>>>>>>>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
+//   for( int j = 0; j < clmsrProfileP->k; j ++ )
+//   {
+//     printf("j: %d----------------\n", j
+//       );
+//     for( int i = 0; i < size; i ++ )
+//     {
+//         printf("%c,", data_ptrs[j][i] );
+//     }
+//     printf("----------------------------------------------------------------\n");
+//   }
+//   printf("check in doDecode>>>>>>>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
 
 
 
@@ -1240,7 +1241,7 @@ int SingleGpuRoute::doDecode \
 
     for(hm_w = 0; hm_w <= max_weight; hm_w++)
     {
-            int pieceOffset = 0;
+            int pieceOffset = subSubChunkStart;
             int pieceSize = 0;
             //init_matrix = false;
 
