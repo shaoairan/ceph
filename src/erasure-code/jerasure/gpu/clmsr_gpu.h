@@ -80,7 +80,6 @@ map<int,int> &repair_sub_chunks_ind
 public:
 
 	char** B_buf;
-	int *matrix_gpu;
 
 	static bool statusMark;
 	ClmsrProfile clmsrProfile;
@@ -102,6 +101,8 @@ private:
 class SingleGpuRoute
 {
 public:
+
+	int *matrix_gpu;
 	ClmsrGpu* clmsrGpuP;
 	ClmsrProfile* clmsrProfileP;
 	int deviceId;
