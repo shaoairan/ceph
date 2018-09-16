@@ -45,7 +45,8 @@ extern "C" {
 
 #define talloc(type, num) (type *) malloc(sizeof(type)*(num))
 
-#define FT(A) FunctionTest printFunctionName(#A)
+#define FT(A) 1==1;
+//#define FT(A) FunctionTest printFunctionName(#A)
 
 class FunctionTest
 {
@@ -163,13 +164,13 @@ unsigned int ErasureCodeJerasure::get_chunk_size(unsigned int object_size) const
       chunk_size += alignment - modulo;
     }
 
-    debughouTab(1,  "\n\nper_chunk_alignment========================\n\nchunk_size:%d\nalignment: %d\nobject_size: %d\nk: %d\n\n", chunk_size, alignment,object_size,k );
+    //debughouTab(1,  "\n\nper_chunk_alignment========================\n\nchunk_size:%d\nalignment: %d\nobject_size: %d\nk: %d\n\n", chunk_size, alignment,object_size,k );
     return chunk_size;
   } else {
     unsigned tail = object_size % alignment;
     unsigned padded_length = object_size + ( tail ?  ( alignment - tail ) : 0 );
     assert(padded_length % (k*sub_chunk_no) == 0);
-    debughouTab(1,  "\n\nno no no per_chunk_alignment========================\n\nchunk_size:%d\nobject_size: %d\nk: %d\n\n", padded_length / k,object_size,k );
+    //debughouTab(1,  "\n\nno no no per_chunk_alignment========================\n\nchunk_size:%d\nobject_size: %d\nk: %d\n\n", padded_length / k,object_size,k );
     
     return padded_length / k;
   }
@@ -976,18 +977,18 @@ int ErasureCodeJerasureCLMSR::decode2(const set<int> &want_to_read,
     avail.insert(i->first);
   }
 
-  printf("is_repair result: %d\n",is_repair(want_to_read, avail));
-  printf("want_to_read:\n");
-  for(set<int>::const_iterator i = want_to_read.begin();
-      i != want_to_read.end(); ++i){
-    printf("**: %d\n", *i);
-  }
+  // printf("is_repair result: %d\n",is_repair(want_to_read, avail));
+  // printf("want_to_read:\n");
+  // for(set<int>::const_iterator i = want_to_read.begin();
+  //     i != want_to_read.end(); ++i){
+  //   printf("**: %d\n", *i);
+  // }
 
-  printf( "avail: \n" );
-  for(set<int>::const_iterator i = avail.begin();
-      i != avail.end(); ++i){
-    printf("==: %d\n", *i);
-  }
+  // printf( "avail: \n" );
+  // for(set<int>::const_iterator i = avail.begin();
+  //     i != avail.end(); ++i){
+  //   printf("==: %d\n", *i);
+  // }
 
 /*  //debug
   set<int> temp;
@@ -1189,7 +1190,7 @@ int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
                                    const set<int> &available_chunks){
 
   //debug new
-  return 1;                             
+  //return 1;                             
 
   FT(ErasureCodeJerasureCLMSR::is_repair);
 

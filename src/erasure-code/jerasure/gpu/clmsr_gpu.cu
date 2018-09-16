@@ -41,7 +41,7 @@ using namespace std;
 
 
 
-#define FT(A) FunctionTest4 printFunctionName(#A)
+#define FT(A) 1==1;
 
 class FunctionTest4
 {
@@ -1140,8 +1140,6 @@ int SingleGpuRoute::doDecode \
     assert(size%clmsrProfileP->subChunkSize == 0);
     int ss_size = clmsrProfileP->subChunkSize;
 
-//debug
-   printf(" k: %d\t nu: %d\t m: %d\n",clmsrProfileP->k, clmsrProfileP->nu, clmsrProfileP->m );
     const int k = clmsrProfileP->k + clmsrProfileP->nu;
     const int m = clmsrProfileP->m;
 
@@ -1200,7 +1198,7 @@ int SingleGpuRoute::doDecode \
     CUDA_CHECK_RETURN( cudaMemcpy( B_buf[0], ttemp, 9, cudaMemcpyDeviceToHost) );
     CUDA_CHECK_RETURN(cudaFree(ttemp));*/
     //init decode vars: etc: decode_matrix
-    printf("get before jerasure_make_decoding_matrix=========================================\n");
+    //printf("get before jerasure_make_decoding_matrix=========================================\n");
     if (jerasure_make_decoding_matrix(k, m, clmsrProfileP->w, clmsrProfileP->matrix, erased, decode_matrix, dm_ids) < 0) 
     {
       printf("Can not get decoding matrix!!!\n");
@@ -1216,7 +1214,7 @@ int SingleGpuRoute::doDecode \
 
     CUDA_CHECK_RETURN( cudaMemcpy(erasure_loc_data_gpu, erasure_loc_data, qt*sizeof(int), cudaMemcpyHostToDevice) );
     CUDA_CHECK_RETURN( cudaMemcpy(erasure_loc_coding_gpu, erasure_loc_coding, qt*sizeof(int), cudaMemcpyHostToDevice) );
-    printf("get afer jerasure_make_decoding_matrix=========================================\n");
+    //printf("get afer jerasure_make_decoding_matrix=========================================\n");
 
 
     //debug

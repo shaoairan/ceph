@@ -30,7 +30,8 @@ extern "C" {
 
 #define talloc(type, num) (type *) malloc(sizeof(type)*(num))
 
-#define FT(A) FunctionTest3 printFunctionName(#A)
+#define FT(A) 1==1;
+//#define FT(A) FunctionTest3 printFunctionName(#A)
 
 static ostream& _prefix(std::ostream* _dout)
 {
@@ -420,18 +421,18 @@ int ErasureCodeJerasureCLMSR_GPU::decode2(const set<int> &want_to_read,
     avail.insert(i->first);
   }
 
-  printf("is_repair result: %d\n",is_repair(want_to_read, avail));
-  printf("want_to_read:\n");
-  for(set<int>::const_iterator i = want_to_read.begin();
-      i != want_to_read.end(); ++i){
-    printf("**: %d\n", *i);
-  }
+  // printf("is_repair result: %d\n",is_repair(want_to_read, avail));
+  // printf("want_to_read:\n");
+  // for(set<int>::const_iterator i = want_to_read.begin();
+  //     i != want_to_read.end(); ++i){
+  //   printf("**: %d\n", *i);
+  // }
 
-  printf( "avail: \n" );
-  for(set<int>::const_iterator i = avail.begin();
-      i != avail.end(); ++i){
-    printf("==: %d\n", *i);
-  }
+  // printf( "avail: \n" );
+  // for(set<int>::const_iterator i = avail.begin();
+  //     i != avail.end(); ++i){
+  //   printf("==: %d\n", *i);
+  // }
 
 /*  //debug
   set<int> temp;
@@ -1561,18 +1562,18 @@ int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaire
     unsigned subChunkSize = repair_blocksize/repair_sub_chunks_ind.size();
     unsigned chunkSize = sub_chunk_no*subChunkSize;
 
-    debughou("matrix before: \n========================================\n");
+    // debughou("matrix before: \n========================================\n");
 
-    for( int i = 0; i < m; i ++ )
-    {
-        for( int j = 0; j < k; j ++ )
-        {
-          debughou( "%d, ", matrix[i*k+j] );
-        }
-        debughou("\n");
-    }
+    // for( int i = 0; i < m; i ++ )
+    // {
+    //     for( int j = 0; j < k; j ++ )
+    //     {
+    //       debughou( "%d, ", matrix[i*k+j] );
+    //     }
+    //     debughou("\n");
+    // }
 
-    debughou("=====================================\n");
+    // debughou("=====================================\n");
 
     ClmsrProfile clmsrProfile( q,t,d,sub_chunk_no,\
     k,m,w,nu,\

@@ -26,7 +26,7 @@
 
 const unsigned ErasureCode::SIMD_ALIGN = 32;
 
-#define FT(A) FunctionTest1 printFunctionName(#A)
+#define FT(A) 1==1;
 
 class FunctionTest1
 {
@@ -132,9 +132,6 @@ int ErasureCode::encode_prepare(const bufferlist &raw,
   unsigned int m = get_chunk_count() - k;
   unsigned blocksize = get_chunk_size(raw.length());
 
-
-  //debug
-  printf("::::::::::in encode_prepare, blocksize: %d\n\n", blocksize);
 
   unsigned padded_chunks = k - raw.length() / blocksize;
   bufferlist prepared = raw;

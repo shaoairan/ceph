@@ -141,18 +141,6 @@ TYPED_TEST(ErasureCodeTest, encode_decode)
       EXPECT_EQ(0, memcmp(decoded[0].c_str(), in.c_str(), length));
       EXPECT_EQ(0, memcmp(decoded[1].c_str(), in.c_str() + length,
 			  in.length() - length));
-
-      cout << "after decode >>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>\n";
-      for( int j = 0; j < decoded.size(); j++ )
-      {
-        printf("----------------------------chunk: %d\n", j );
-        for( int i = 0; i < length; i ++ )
-        {
-          //cout << in.c_str()[i] << ',';
-          printf("%u == %u ? %d, ", (unsigned char)(decoded[j].c_str()[i]),in.c_str() + j*length );
-        }
-      }
-      cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
     }
   }
 }
@@ -181,12 +169,12 @@ TYPED_TEST(ErasureCodeTest, encode_repair)
 
     if (t != "cl_msr" && t != "cl_msr_gpu" ) {
       
-      printf("=======================I'm not========================================\n");
+      //printf("=======================I'm not========================================\n");
       return;
     }
     else
     {
-      printf("=======================I'm========================================\n");
+      //printf("=======================I'm========================================\n");
       bufferptr in_ptr(buffer::create_page_aligned(LARGE_ENOUGH));
       in_ptr.zero();
       in_ptr.set_length(0);
@@ -272,11 +260,6 @@ TYPED_TEST(ErasureCodeTest, encode_repair)
         EXPECT_EQ(length, decoded[0].length());
         EXPECT_EQ(length/2, degraded[1].length());
 
-        
-        for( int tt = 0; tt < length; tt ++ )
-        {
-            printf( "%d: %c vs %c\n",tt, decoded[0].c_str()[tt], in.c_str()[tt] );
-        }
 
         EXPECT_EQ(0, memcmp(decoded[0].c_str(), in.c_str(), length));
       }
