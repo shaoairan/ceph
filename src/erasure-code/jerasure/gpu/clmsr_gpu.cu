@@ -175,7 +175,8 @@ ClmsrGpu::ClmsrGpu(  ClmsrProfile clmsrProfile_ ) : \
      clmsrProfile(clmsrProfile_)
      {
         FT(ClmsrGpu::ClmsrGpu);
-
+        cudaGetDeviceCount(&deviceCount);
+        printf( "%d GPUs on host. use %d to encode\n", deviceCount, deviceCount );
         //done: init B_Buf and pin it
         CUDA_CHECK_RETURN(cudaHostAlloc(&B_buf, clmsrProfile.q*clmsrProfile.t*sizeof(char*), cudaHostAllocPortable));
 
@@ -702,6 +703,8 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
 {
     FT(SingleGpuRoute::doRepair);
 
+    //performance test
+    //pieceKernelBlockSize/=repair_sub_chunks_ind.size();
 
     init_gf_log_w8_gpu();
 
@@ -1110,6 +1113,8 @@ int SingleGpuRoute::doDecode \
 {
 
 
+    //performance test
+    //pieceKernelBlockSize/=( clmsrProfileP->q * clmsrProfileP->t );
     char** B_buf = clmsrGpuP->B_buf;
 
     FT(SingleGpuRoute::doDecode);

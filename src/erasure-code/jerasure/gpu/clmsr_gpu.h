@@ -84,6 +84,7 @@ public:
 	static bool statusMark;
 	ClmsrProfile clmsrProfile;
 	DeviceInfo deviceInfo;
+	int deviceCount;
 
 	ClmsrGpu( ClmsrProfile clmsrProfile_ );
 	~ClmsrGpu();

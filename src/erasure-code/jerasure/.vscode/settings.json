@@ -2,6 +2,12 @@
     "files.associations": {
         "system_error": "cpp",
         "array": "cpp",
-        "typeinfo": "cpp"
+        "typeinfo": "cpp",
+        "deque": "cpp",
+        "unordered_map": "cpp",
+        "vector": "cpp",
+        "initializer_list": "cpp",
+        "ratio": "cpp",
+        "utility": "cpp"
     }
 }
