@@ -1169,21 +1169,21 @@ void ErasureCodeJerasureCLMSR::group_repair_subchunks(map<int,int> &repair_subch
     grouped_subchunks.push_back(make_pair(start,end-start+1));
   }
 
-  debughouTab(0,"\n***********************repair_subchunks:\n");
-  for( map<int,int>::iterator t = repair_subchunks.begin(); t != repair_subchunks.end(); t ++ )
-  {
-    debughouTab(0, " %d->%d\n", t->first, t->second );
-  }
+  // debughouTab(0,"\n***********************repair_subchunks:\n");
+  // for( map<int,int>::iterator t = repair_subchunks.begin(); t != repair_subchunks.end(); t ++ )
+  // {
+  //   debughouTab(0, " %d->%d\n", t->first, t->second );
+  // }
 
-  debughouTab(0,"\n************************************%u\n", repair_subchunks.size());
+  // debughouTab(0,"\n************************************%u\n", repair_subchunks.size());
 
-  debughouTab(0,"\n***********************grouped_subchunks:\n");
-  for( list<pair<int,int> >::iterator t = grouped_subchunks.begin(); t != grouped_subchunks.end(); t ++ )
-  {
-    debughouTab(0, " %d->%d\n", t->first, t->second );
-  }
+  // debughouTab(0,"\n***********************grouped_subchunks:\n");
+  // for( list<pair<int,int> >::iterator t = grouped_subchunks.begin(); t != grouped_subchunks.end(); t ++ )
+  // {
+  //   debughouTab(0, " %d->%d\n", t->first, t->second );
+  // }
 
-  debughouTab(0,"\n************************************%u\n", grouped_subchunks.size());
+  // debughouTab(0,"\n************************************%u\n", grouped_subchunks.size());
 }   
 
 int ErasureCodeJerasureCLMSR::is_repair(const set<int> &want_to_read,
@@ -1355,7 +1355,7 @@ int ErasureCodeJerasureCLMSR::repair(const set<int> &want_to_read,
         aloof_nodes.insert(aloof_node_id);
       }else{
         bufferptr ptr(buffer::create_aligned(chunksize, SIMD_ALIGN));
-        printf("=============In repair: \nchunksize: %d\nsub_chunk_no: %d\nsub_chunksize: %d\nrepair_blocksize: %d\nrepair_sub_chunk_no: %d\n\n",  chunksize, sub_chunk_no, sub_chunksize, repair_blocksize, repair_sub_chunk_no );
+        //printf("=============In repair: \nchunksize: %d\nsub_chunk_no: %d\nsub_chunksize: %d\nrepair_blocksize: %d\nrepair_sub_chunk_no: %d\n\n",  chunksize, sub_chunk_no, sub_chunksize, repair_blocksize, repair_sub_chunk_no );
         int lost_node_id = (i < k) ? i : i+nu;
    
         (*repaired)[i].push_front(ptr);
@@ -1410,33 +1410,33 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
  unsigned sub_chunksize = repair_blocksize/repair_sub_chunks_ind.size();
 
 
-    debughouTab(1, "repaired_data:**************\n");
-    for( map<int,char*>::iterator it = repaired_data.begin(); it != repaired_data.end(); it ++ )
-    {
-        debughouTab(1, "%d,", it->first);
-    }
-    debughouTab(1, "\n**************\n");
+    // debughouTab(1, "repaired_data:**************\n");
+    // for( map<int,char*>::iterator it = repaired_data.begin(); it != repaired_data.end(); it ++ )
+    // {
+    //     debughouTab(1, "%d,", it->first);
+    // }
+    // debughouTab(1, "\n**************\n");
 
-    debughouTab(1, "helper_data:**************\n");
-    for( map<int,char*>::iterator it = helper_data.begin(); it != helper_data.end(); it ++ )
-    {
-        debughouTab(1, "%d,", it->first);
-    }
-    debughouTab(1, "\n**************\n");
+    // debughouTab(1, "helper_data:**************\n");
+    // for( map<int,char*>::iterator it = helper_data.begin(); it != helper_data.end(); it ++ )
+    // {
+    //     debughouTab(1, "%d,", it->first);
+    // }
+    // debughouTab(1, "\n**************\n");
 
-    debughouTab(1, "aloof_nodes:**************\n");
-    for( set<int>::iterator it = aloof_nodes.begin(); it != aloof_nodes.end(); it ++ )
-    {
-        debughouTab(1, "%d,", *it);
-    }
-    debughouTab(1, "\n**************\n");
+    // debughouTab(1, "aloof_nodes:**************\n");
+    // for( set<int>::iterator it = aloof_nodes.begin(); it != aloof_nodes.end(); it ++ )
+    // {
+    //     debughouTab(1, "%d,", *it);
+    // }
+    // debughouTab(1, "\n**************\n");
 
-    debughouTab(1, "repair_sub_chunks_ind:**************\n");
-    for( map<int,int>::iterator it = repair_sub_chunks_ind.begin(); it != repair_sub_chunks_ind.end(); it ++ )
-    {
-        debughouTab(1, "%d: %d;\t", it->first, it->second);
-    }
-    debughouTab(1, "\n**************\n");
+    // debughouTab(1, "repair_sub_chunks_ind:**************\n");
+    // for( map<int,int>::iterator it = repair_sub_chunks_ind.begin(); it != repair_sub_chunks_ind.end(); it ++ )
+    // {
+    //     debughouTab(1, "%d: %d;\t", it->first, it->second);
+    // }
+    // debughouTab(1, "\n**************\n");
 
 
   int z_vec[t];
@@ -1467,13 +1467,6 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
     repair_plane_to_ind[i->second] = i->first;
   }
 
-  debughouTab(1, "repair_plane_to_ind:**************\n");
-  for( map<int,int>::iterator it = repair_plane_to_ind.begin(); it != repair_plane_to_ind.end(); it ++ )
-  {
-      debughouTab(1, "%d: %d;\t", it->first, it->second);
-  }
-  debughouTab(1, "\n**************\n");
-
   int plane_count = 0;
   int erasure_locations[q*t];
 
@@ -1488,25 +1481,11 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
   for(order=1; ;order++){
     if(ordered_planes.find(order) == ordered_planes.end())break;
     else{
-      //dout(10) << "decoding planes of order " << order <<dendl;
-      debughouTab(0, "\n\n\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\norder: %d\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n\n\n",order);
-
       plane_count += ordered_planes[order].size();
       for(set<int>::iterator z=ordered_planes[order].begin();
           z != ordered_planes[order].end(); ++z)
       {
         get_plane_vector(*z, z_vec);
- 
-        debughouTab(0, "=========================================z: %d repair_plane_to_ind[*z]: %d, order, %d==================\n\n", *z, repair_plane_to_ind[*z], order);
-
-
-        debughouTab(1, "z_vec**************************\n");
-
-        for( int u = 0; u < t; u ++ )
-        {
-            debughouTab(1, "%d", z_vec[u]);
-        }
-        debughouTab(1, "\n**************************\n");
 
         num_erased = 0;
         for(y=0; y < t; y++){
@@ -1516,7 +1495,7 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
                     z_sw = (*z) + (x - z_vec[y])*pow_int(q,t-1-y);
               node_sw = y*q + z_vec[y];
 
-            debughouTab(1, "node_xy: %d\t node_sw: %d\t z_sw: %d\t q: %d\tx: %d\t y: %d\n", node_xy,node_sw,z_sw,q,x,y);
+            //debughouTab(1, "node_xy: %d\t node_sw: %d\t z_sw: %d\t q: %d\tx: %d\t y: %d\n", node_xy,node_sw,z_sw,q,x,y);
 
             if( (repaired_data.find(node_xy) != repaired_data.end()) ||
                 (aloof_nodes.find(node_xy) != aloof_nodes.end()) )
@@ -1529,13 +1508,13 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
               //so A1 is available, need to check if A2 is available.
               A1 = &helper_data[node_xy][repair_plane_to_ind[*z]*sub_chunksize];
               
-              debugPrintVecOut( A1, sub_chunksize, node_xy, "A1-case1" );
+              //debugPrintVecOut( A1, sub_chunksize, node_xy, "A1-case1" );
 
               //dout(10) << "current node=" << node_xy << " plane="<< *z << " node_sw=" << node_sw << " plane_sw="<< z_sw << dendl;
               //consider this as an erasure, if A2 not found.
               if(repair_plane_to_ind.find(z_sw) == repair_plane_to_ind.end())
               {
-                debughouTab(3, "put node_xy: %d in erasures for z_sw: %d lost\n", node_xy, z_sw);
+                //debughouTab(3, "put node_xy: %d in erasures for z_sw: %d lost\n", node_xy, z_sw);
                 erasure_locations[num_erased] = node_xy;
                 //dout(10)<< num_erased<< "'th erasure of node " << node_xy << " = (" << x << "," << y << ")" << dendl;
                 num_erased++;
@@ -1543,14 +1522,14 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
                 if(repaired_data.find(node_sw) != repaired_data.end()){
                   assert(z_sw < sub_chunk_no);
                   A2 = &repaired_data[node_sw][z_sw*sub_chunksize];
-                  debugPrintVecOut( A2, sub_chunksize, node_xy, "A2-case1" );
+                  //debugPrintVecOut( A2, sub_chunksize, node_xy, "A2-case1" );
                   get_B1_fromA1A2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, A2,sub_chunksize);
-                  debugPrintVecOut( &B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], sub_chunksize, node_xy, "B1-case1--" );
+                  //debugPrintVecOut( &B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], sub_chunksize, node_xy, "B1-case1--" );
                 } else if(aloof_nodes.find(node_sw) != aloof_nodes.end()){
                   B2 = &B_buf[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize];
-                  debugPrintVecOut( B2, sub_chunksize, node_xy, "B2-case1" );
+                  //debugPrintVecOut( B2, sub_chunksize, node_xy, "B2-case1" );
                   get_B1_fromA1B2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, B2, sub_chunksize);
-                  debugPrintVecOut( &B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], sub_chunksize, node_xy, "B1-case2--" );
+                  //debugPrintVecOut( &B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], sub_chunksize, node_xy, "B1-case2--" );
                 } else{
 
                   assert(helper_data.find(node_sw) != helper_data.end());
@@ -1558,14 +1537,14 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
                   A2 = &helper_data[node_sw][repair_plane_to_ind[z_sw]*sub_chunksize];
                   
                   
-                  debugPrintVecOut( A2, sub_chunksize, node_xy, "B2-case3" );
+                  //debugPrintVecOut( A2, sub_chunksize, node_xy, "B2-case3" );
                   if( z_vec[y] != x){
                     get_B1_fromA1A2(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, A2, sub_chunksize);
-                    debugPrintVecOut( &B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], sub_chunksize, node_xy, "B1-case3--" );
+                    //debugPrintVecOut( &B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], sub_chunksize, node_xy, "B1-case3--" );
                   } else
                   { 
                     memcpy(&B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], A1, sub_chunksize);
-                    debugPrintVecOut( &B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], sub_chunksize, node_xy, "B1-case3.2--" );
+                    //debugPrintVecOut( &B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize], sub_chunksize, node_xy, "B1-case3.2--" );
                   }
                 }
               }
@@ -1586,21 +1565,21 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
             printf("fuck your code is wrong and you still published the paper!!!\n");
         }
 
-        debughouTab(1,">>>>>>>>>>>>>>>> decode result >>>>>>>>>>>>>>>>>");
-        for(y=0; y < t; y++)
-        {
-            for(x = 0; x < q; x++)
-            {
-                node_xy = y*q + x;//todo: check pow is right
-                //debug new
+        // debughouTab(1,">>>>>>>>>>>>>>>> decode result >>>>>>>>>>>>>>>>>");
+        // for(y=0; y < t; y++)
+        // {
+        //     for(x = 0; x < q; x++)
+        //     {
+        //         node_xy = y*q + x;//todo: check pow is right
+        //         //debug new
                 
                 
                 
-                char* B11 = &B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize];
-                debugPrintVecOut( B11, sub_chunksize, node_xy, "B1-After-decode" );
-            }
-        }
-        debughouTab(1,"<<<<<<<<<<<<<<< decode result <<<<<<<<<<<<<<<<<<");
+        //         char* B11 = &B_buf[node_xy][repair_plane_to_ind[*z]*sub_chunksize];
+        //         debugPrintVecOut( B11, sub_chunksize, node_xy, "B1-After-decode" );
+        //     }
+        // }
+        // debughouTab(1,"<<<<<<<<<<<<<<< decode result <<<<<<<<<<<<<<<<<<");
 
         for(int i = 0; i < num_erased; i++){
           x = erasure_locations[i]%q;
@@ -1657,7 +1636,7 @@ int ErasureCodeJerasureCLMSR::repair_lost_chunks(map<int,char*> &repaired_data, 
         
 
                     // debugPrintVecOut( planeOnGpu[erasure_locations[i]] + pieceSizeMax*1, sub_chunksize, node_sw, "A2-----recovering!!!!!!" );
-                    debughouTab(1,"node_sw: %d z_sw: %d\n\n\n", node_sw, z_sw );
+                    //debughouTab(1,"node_sw: %d z_sw: %d\n\n\n", node_sw, z_sw );
                   get_type2_A(A2, B1, A1, sub_chunksize);
                   count_retrieved_sub_chunks++;
                 }
@@ -1708,9 +1687,7 @@ int ErasureCodeJerasureCLMSR::encode_systematic(char** data_ptrs, char** code_pt
 
 int ErasureCodeJerasureCLMSR::decode_layered(int* erasure_locations, char** data_ptrs, char** code_ptrs, int size)
 {
-  //debug
-  printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\nsize: %d\n****************haha\n", gamma,q,t,d,size );
-  FT(ErasureCodeJerasureCLMSR::decode_layered);
+ FT(ErasureCodeJerasureCLMSR::decode_layered);
   /*printf("check in decode_layered>>>>>>>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
   for( int j = 0; j < k; j ++ )
   {
@@ -1789,12 +1766,12 @@ int ErasureCodeJerasureCLMSR::decode_layered(int* erasure_locations, char** data
       }
     }
 
-    //debug
-    cout << "hm_w: " << hm_w << "//////////////////////////////////////////////////////////////////////////\n";
-    cout << "//////////////////////////////////////////////////////////////////////////\n";
-    cout << "//////////////////////////////////////////////////////////////////////////\n";
-    cout << "//////////////////////////////////////////////////////////////////////////\n";
-    cout << "//////////////////////////////////////////////////////////////////////////\n";
+    // //debug
+    // cout << "hm_w: " << hm_w << "//////////////////////////////////////////////////////////////////////////\n";
+    // cout << "//////////////////////////////////////////////////////////////////////////\n";
+    // cout << "//////////////////////////////////////////////////////////////////////////\n";
+    // cout << "//////////////////////////////////////////////////////////////////////////\n";
+    // cout << "//////////////////////////////////////////////////////////////////////////\n";
     /*cout << "get here~~~~~~~~~~~\n";
           //debug
     return 0;*/
@@ -2259,11 +2236,11 @@ int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int
 {
 
   //debug
-  printf(">>>>>>>> in jerasure_matrix_decode_substripe, matrix:\n");
-  for( int i = 0; i < k*m; i ++ )
-  {
-      printf("%d: %d\t", i, matrix[i] );
-  }
+  //printf(">>>>>>>> in jerasure_matrix_decode_substripe, matrix:\n");
+  // for( int i = 0; i < k*m; i ++ )
+  // {
+  //     printf("%d: %d\t", i, matrix[i] );
+  // }
 
   int i, edd, lastdrive;
   int *tmpids;
@@ -2307,7 +2284,7 @@ int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int
   //std::cout << "edd: " << edd << " row_k_ones: "<< row_k_ones << " tt: " << (!row_k_ones || erased[k]) << std::endl;
 
   if (edd > 1 || (edd > 0 && (!row_k_ones || erased[k]))) {
-    printf(">>>>>>>>>>>>making decoding_matrix\n");
+    //printf(">>>>>>>>>>>>making decoding_matrix\n");
     dm_ids = talloc(int, k);
     if (dm_ids == NULL) {
       free(erased);
@@ -2330,19 +2307,11 @@ int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int
       printf("fuck your code is wrong and you still published the paper************************************************");
       return -1;
     }
-
-
-      //debug
-      printf(">>>>>>>> in jerasure_matrix_decode_substripe, decoding_matrix:\n");
-      for( int i = 0; i < k*k; i ++ )
-      {
-          printf("%d: %d\t", i, decoding_matrix[i] );
-      }
   }
-  else
-  {
-    printf(">>>>>>>>>>>>not making decoding_matrix\n");
-  }
+  // else
+  // {
+  //   printf(">>>>>>>>>>>>not making decoding_matrix\n");
+  // }
 
     /*//debug
     printf(">>>>>>>> fuck, matrix:\n");

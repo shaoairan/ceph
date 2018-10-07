@@ -782,7 +782,8 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
     }
 
 
-
+    timespec t1, t2;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
     //repair planes in order
     for(order=1; ;order++){
     if(ordered_planes.find(order) == ordered_planes.end())
@@ -1048,7 +1049,11 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
     assert(repair_sub_chunks_ind.size() == (unsigned)plane_count);
     assert(sub_chunk_no*repaired_data.size() == (unsigned)count_retrieved_sub_chunks);
 
+    cudaDeviceSynchronize();
+    clock_gettime(CLOCK_MONOTONIC, &t2);
+    long long deltaT = (t2.tv_sec - t1.tv_sec) * pow(10, 9) + t2.tv_nsec - t1.tv_nsec;
 
+    printf("repair, device, %d, time(s), %lf\n", deviceId, (double)deltaT/pow(10, 9));
 
     CUDA_CHECK_RETURN(cudaFreeHost(z_vec));
     CUDA_CHECK_RETURN(cudaFree(decode_matrix_gpu));
@@ -1108,6 +1113,12 @@ int SingleGpuRoute::doDecode \
     char** B_buf = clmsrGpuP->B_buf;
 
     FT(SingleGpuRoute::doDecode);
+
+    //newnewdebug
+    int mark = 0;
+    //newnewdebug
+    //debughouTab(1, "debugging0 %d\n",mark++);
+
 //debug
 //     printf("******************\ngamma:\t%d\nq:\t%d\nt:\t%d\nd:\t%d\nsize: %d\n****************haha\n", clmsrProfileP->gamma,clmsrProfileP->q,clmsrProfileP->t,clmsrProfileP->d,size );
 //   printf("check in doDecode>>>>>>>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
@@ -1247,7 +1258,8 @@ int SingleGpuRoute::doDecode \
     printf("\n\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n");
     return 0;    */                         
 
-
+//newnewdebug
+//debughouTab(1, "debugging1 %d\n",mark++);
 
     timespec t1, t2;
     clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -1277,6 +1289,8 @@ int SingleGpuRoute::doDecode \
                     {
                         for(y=0; y<t; y++)
                         {
+                            //newnewdebug
+    //debughouTab(1, "debugging2 %d\n",mark);
                             //todo: may not need because A1 is erasured error!!!
                             /*if( erased[y*q+x] != 1 )
                             {*/
@@ -1378,7 +1392,8 @@ int SingleGpuRoute::doDecode \
                 //     }
                 // }
                 //       }
-
+                    //newnewdebug
+    //debughouTab(1, "debugging3 %d\n",mark++);
                     //Decode in B's
                    /* jerasure_matrix_decode_substripe(k+nu, m, w, matrix, 0, erasure_locations, 
                                                    &B_buf[0], &B_buf[k+nu], z, ss_size);
@@ -1387,20 +1402,23 @@ int SingleGpuRoute::doDecode \
                    //debug
 
                     //find if streams is needed
-                    // planeKernel<<<planeKernelGridSize,planeKernelBlockSize,(k*k + k * m)*sizeof(char)>>>(gf_table, \
-                    //     k, clmsrProfileP->nu, m, clmsrProfileP->w, q, t,\
-                    //     clmsrGpuP->matrix_gpu, decode_matrix_gpu, dm_ids_gpu, erasure_loc_data_gpu, erased_data_size, erasure_loc_coding_gpu, erased_coding_size, planePOnGpuK, pieceSize, pieceSizeMax\
-                    //  );
-                    planeKernel<<<1,1,(k*k + k * m)*sizeof(char)>>>(gf_table, \
+                    planeKernel<<<planeKernelGridSize,planeKernelBlockSize,(k*k + k * m)*sizeof(char)>>>(gf_table, \
                         k, clmsrProfileP->nu, m, clmsrProfileP->w, q, t,\
                         matrix_gpu, decode_matrix_gpu, dm_ids_gpu, erasure_loc_data_gpu, erased_data_size, erasure_loc_coding_gpu, erased_coding_size, planePOnGpuK, pieceSize, pieceSizeMax\
                      );
-                   //cudaDeviceSynchronize();
+                    // planeKernel<<<1,1,(k*k + k * m)*sizeof(char)>>>(gf_table, \
+                    //     k, clmsrProfileP->nu, m, clmsrProfileP->w, q, t,\
+                    //     matrix_gpu, decode_matrix_gpu, dm_ids_gpu, erasure_loc_data_gpu, erased_data_size, erasure_loc_coding_gpu, erased_coding_size, planePOnGpuK, pieceSize, pieceSizeMax\
+                    //  );
+                   cudaDeviceSynchronize();
                     //end
 
-
+//newnewdebug
+//debughouTab(1, "debugging4 %d\n",mark++);
                     for(i = 0; i<num_erasures; i++)
                     {
+                        //newnewdebug
+    //debughouTab(1, "debugging5 %d\n",mark);
                         x = erasures[i].x;
                         y = erasures[i].y;
                         node_xy = y*q+x;
@@ -1426,8 +1444,10 @@ int SingleGpuRoute::doDecode \
                         CUDA_CHECK_RETURN( cudaMemcpyAsync( B1, planeOnGpu[node_xy] + pieceSizeMax*2, pieceSize, cudaMemcpyDeviceToHost, streams[node_xy]) );
                         //CUDA_CHECK_RETURN( cudaMemcpyAsync( B_buf[0], planeOnGpu[node_xy], 9, cudaMemcpyDeviceToHost) );
                     }
+                    //debughouTab(1, "debugging5.5 %d\n",mark++);
                     //todo new
-                    CUDA_CHECK_RETURN(cudaDeviceSynchronize());//todo new: remove this to speed
+                    //CUDA_CHECK_RETURN(cudaDeviceSynchronize());//todo new: remove this to speed
+                    //debughouTab(1, "debugging5.6 %d\n",mark++);
                     //debug
                     // for(x=0; x < q; x++){
                     //     for(y=0; y<t; y++){
@@ -1449,7 +1469,8 @@ int SingleGpuRoute::doDecode \
 
                 }
             }
-
+//newnewdebug
+//debughouTab(1, "debugging6 %d\n",mark++);
 
 
               //debug
@@ -1464,12 +1485,16 @@ int SingleGpuRoute::doDecode \
         /* Need to get A's from B's*/
             for(z = 0; z< clmsrProfileP->sub_chunk_no; z++)
             {
+                //newnewdebug
+    //debughouTab(1, "debugging7 %d\n",mark++);
                 if(order[z]==hm_w)
                 {
                     //printf(">>>>>>>>>>>>>>in getting A from B %d\n", z);
                     get_plane_vector(q, t, z, z_vec);
                     for(i = 0; i<num_erasures; i++)
                     {
+                        //newnewdebug
+    //debughouTab(1, "debugging8 %d\n",mark);
                         x = erasures[i].x;
                         y = erasures[i].y;
                         node_xy = y*q+x;
@@ -1571,11 +1596,14 @@ int SingleGpuRoute::doDecode \
         }
     }//hm_w, order
 
+
+    //newnewdebug
+    //debughouTab(1, "debugging %d\n",mark++);
     cudaDeviceSynchronize();
     clock_gettime(CLOCK_MONOTONIC, &t2);
     long long deltaT = (t2.tv_sec - t1.tv_sec) * pow(10, 9) + t2.tv_nsec - t1.tv_nsec;
 
-    printf(">>>>>>>>>>>>>>time used: \n%lf s\n\n\n\n", (double)deltaT/pow(10, 9));
+    printf("encode/decode, device, %d, time(s), %lf\n", deviceId, (double)deltaT/pow(10, 9));
 
     CUDA_CHECK_RETURN(cudaFreeHost(z_vec) );
     CUDA_CHECK_RETURN(cudaFree(decode_matrix_gpu));

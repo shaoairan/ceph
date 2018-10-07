@@ -38,7 +38,7 @@
 namespace po = boost::program_options;
 
 
-#define FT(A) FunctionTest2 printFunctionName(#A)
+#define FT(A) 1==1;
 
 class FunctionTest2
 {
@@ -75,7 +75,7 @@ int ClmsrBench::setup(int argc, char** argv) {
   desc.add_options()
     ("help,h", "produce help message")
     ("verbose,v", "explain what happens")
-    ("size,s", po::value<int>()->default_value(1024 * 1024 * 1024),
+    ("size,s", po::value<long long>()->default_value(1024 * 1024 * 1024),
      "size of the buffer to be encoded")
     ("iterations,i", po::value<int>()->default_value(1),
      "number of encode/decode runs")
@@ -141,7 +141,7 @@ int ClmsrBench::setup(int argc, char** argv) {
     }
   }
 
-  in_size = vm["size"].as<int>();
+  in_size = vm["size"].as<long long>();
   max_iterations = vm["iterations"].as<int>();
   plugin = vm["plugin"].as<string>();
   workload = vm["workload"].as<string>();
@@ -186,7 +186,8 @@ int ClmsrBench::run() {
 
 int ClmsrBench::encode()
 {
-  cout << "houyx get into benchmark--encode\n" << endl;
+  //cout << "houyx get into benchmark--encode\n" << endl;
+  cout << "workload: encode" << endl;
   ErasureCodePluginRegistry &instance = ErasureCodePluginRegistry::instance();
   ErasureCodeInterfaceRef erasure_code;
   stringstream messages;
@@ -198,7 +199,7 @@ int ClmsrBench::encode()
     return code;
   }
 
-  cout << "======== the profile is:\n " << (*erasure_code).get_profile() << endl;
+  //cout << "======== the profile is:\n " << (*erasure_code).get_profile() << endl;
 
   if (erasure_code->get_data_chunk_count() != (unsigned int)k ||
       (erasure_code->get_chunk_count() - erasure_code->get_data_chunk_count()
@@ -213,15 +214,15 @@ int ClmsrBench::encode()
   in.append(string(in_size, 'X'));
   in.rebuild_aligned(ErasureCode::SIMD_ALIGN);
 
-  cout << "before encode >>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>\n";
+  // cout << "before encode >>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>\n";
 
-  for( int i = 0; i < in_size; i ++ )
-  {
-    //cout << in.c_str()[i] << ',';
-    printf("%c,", in.c_str()[i]);
-  }
+  // for( int i = 0; i < in_size; i ++ )
+  // {
+  //   //cout << in.c_str()[i] << ',';
+  //   printf("%c,", in.c_str()[i]);
+  // }
 
-  cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
+  // cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
 
 
   set<int> want_to_encode;
@@ -234,20 +235,20 @@ int ClmsrBench::encode()
     code = erasure_code->encode(want_to_encode, in, &encoded);
 
     unsigned length =  encoded[0].length();
-    cout << "after encode >>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>\n";
+    // cout << "after encode >>>>>>>>>>>>>>>>>>>>\n>>>>>>>>>>>>>>>>>>>>>>>>>>\n";
 
-    for( int j = 0; j < m; j ++ )
-    {
-      printf("j: %d------------------------------\n",j );
+    // for( int j = 0; j < m; j ++ )
+    // {
+    //   printf("j: %d------------------------------\n",j );
       
-      for( int i = 0; i < length; i ++ )
-      {
-        //cout << encoded[0].c_str()[i] << ',';
-        printf("%u,", (unsigned char)(encoded[k + j].c_str()[i]));
-      }
-      printf("-----------------------------------------------\n");
-    }
-    cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
+    //   for( int i = 0; i < length; i ++ )
+    //   {
+    //     //cout << encoded[0].c_str()[i] << ',';
+    //     printf("%u,", (unsigned char)(encoded[k + j].c_str()[i]));
+    //   }
+    //   printf("-----------------------------------------------\n");
+    // }
+    // cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
 
     if (code)
       return code;
@@ -281,7 +282,7 @@ int ClmsrBench::decode_erasures(const map<int,bufferlist> &all_chunks,
 				      ErasureCodeInterfaceRef erasure_code)
 {
   FT(ClmsrBench::decode_erasures);
-  cout << "houyx get into benchmark--decode\n" << endl;
+  //cout << "houyx get into benchmark--decode\n" << endl;
   int code = 0;
 
   if (want_erasures == 0) {
@@ -331,8 +332,9 @@ int ClmsrBench::repair_erasures(const map<int,bufferlist> &all_chunks,
               unsigned want_erasures,
               ErasureCodeInterfaceRef erasure_code)
 {
-  FT(ClmsrBench::repair_erasures);
-  cout << "houyx get into benchmark--decode\n" << endl;
+  //FT(ClmsrBench::repair_erasures);
+  //cout << "houyx get into benchmark--decode\n" << endl;
+  
   int code = 0;
 
   if (want_erasures == 0) {
@@ -378,7 +380,6 @@ int ClmsrBench::repair_erasures(const map<int,bufferlist> &all_chunks,
 
 int ClmsrBench::repair()
 {
-  FT(ClmsrBench::repair);
   ErasureCodePluginRegistry &instance = ErasureCodePluginRegistry::instance();
   ErasureCodeInterfaceRef erasure_code;
   stringstream messages;
@@ -411,7 +412,8 @@ int ClmsrBench::repair()
   if (code)
     return code;
 
-  cout << "encode finished====================\n\n\n" << endl;
+  //cout << "encode finished====================\n\n\n" << endl;
+  cout << "workload: repair" << endl;
 
   set<int> want_to_read;
 
@@ -466,7 +468,7 @@ int ClmsrBench::check()
 
 int ClmsrBench::decode()
 {
-  FT(ClmsrBench::decode);
+  //FT(ClmsrBench::decode);
   ErasureCodePluginRegistry &instance = ErasureCodePluginRegistry::instance();
   ErasureCodeInterfaceRef erasure_code;
   stringstream messages;
@@ -511,8 +513,8 @@ int ClmsrBench::decode()
   if (code)
     return code;
 
-  cout << "encode finished====================\n\n\n" << endl;
-
+  //cout << "encode finished====================\n\n\n" << endl;
+  cout << "workload: decode" << endl;
   set<int> want_to_read;
 
   if (erased.size() > 0) {
@@ -560,7 +562,7 @@ int ClmsrBench::decode()
   clock_gettime(CLOCK_MONOTONIC, &t2);
   long long deltaT = (t2.tv_sec - t1.tv_sec) * pow(10, 9) + t2.tv_nsec - t1.tv_nsec;
 
-  printf(">>>>>>>>>>>>>>time used: \n%lf s\n\n\n\n", (double)deltaT/pow(10, 9));
+  //printf(">>>>>>>>>>>>>>time used: \n%lf s\n\n\n\n", (double)deltaT/pow(10, 9));
 
   //check_correctness();
 

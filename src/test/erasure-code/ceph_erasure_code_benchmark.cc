@@ -42,7 +42,7 @@ int ErasureCodeBench::setup(int argc, char** argv) {
   desc.add_options()
     ("help,h", "produce help message")
     ("verbose,v", "explain what happens")
-    ("size,s", po::value<int>()->default_value(1024 * 1024),
+    ("size,s", po::value<long long>()->default_value(1024 * 1024),
      "size of the buffer to be encoded")
     ("iterations,i", po::value<int>()->default_value(1),
      "number of encode/decode runs")
@@ -108,7 +108,7 @@ int ErasureCodeBench::setup(int argc, char** argv) {
     }
   }
 
-  in_size = vm["size"].as<int>();
+  in_size = vm["size"].as<long long>(); 
   max_iterations = vm["iterations"].as<int>();
   plugin = vm["plugin"].as<string>();
   workload = vm["workload"].as<string>();

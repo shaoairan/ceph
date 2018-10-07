@@ -23,7 +23,7 @@
 using namespace std;
 
 class ErasureCodeBench {
-  int in_size;
+  long long in_size;
   int max_iterations;
   int erasures;
   int k;
