@@ -176,7 +176,7 @@ ClmsrGpu::ClmsrGpu(  ClmsrProfile clmsrProfile_ ) : \
      {
         FT(ClmsrGpu::ClmsrGpu);
         cudaGetDeviceCount(&deviceCount);
-        printf( "%d GPUs on host. use %d to encode\n", deviceCount, deviceCount );
+        //printf( "%d GPUs on host. use %d to encode\n", deviceCount, deviceCount );
         //done: init B_Buf and pin it
         CUDA_CHECK_RETURN(cudaHostAlloc(&B_buf, clmsrProfile.q*clmsrProfile.t*sizeof(char*), cudaHostAllocPortable));
 
@@ -467,11 +467,9 @@ __global__ void pieceKernelGamma( gf_w8_log_gpu gf_table, unsigned char gamma, u
     {
         //mark = 0;
         //todo: optmize a*1 case;
-        //todo: wrong test!!!
-        // dest[0][i] = galois_single_multiply_gpu_logtable_w8(A[0][i], tmatrix[0]) ^ galois_single_multiply_gpu_logtable_w8(A[1][i], tmatrix[1]);
-        // dest[1][i] = galois_single_multiply_gpu_logtable_w8(A[0][i], tmatrix[2]) ^ galois_single_multiply_gpu_logtable_w8(A[1][i], tmatrix[3]);
-        dest[0][i]= A[0][i] * A[1][i];
-        dest[1][i]= A[0][i] * A[1][i];
+        dest[0][i] = galois_single_multiply_gpu_logtable_w8(A[0][i], tmatrix[0]) ^ galois_single_multiply_gpu_logtable_w8(A[1][i], tmatrix[1]);
+        dest[1][i] = galois_single_multiply_gpu_logtable_w8(A[0][i], tmatrix[2]) ^ galois_single_multiply_gpu_logtable_w8(A[1][i], tmatrix[3]);
+
     }
 }
 
@@ -570,9 +568,7 @@ __global__ void pieceKernel( gf_w8_log_gpu gf_table, unsigned char gamma, unsign
     for( int i = idx; i < dataSize; i += threadsNum )
     {
         //todo: optmize a*1 case;
-        //todo: wrong test!!!
-        // dest[i] = galois_single_multiply_gpu_logtable_w8(in_dot[0][i], tmatrix[0]) ^ galois_single_multiply_gpu_logtable_w8(in_dot[1][i], tmatrix[1]); 
-        dest[i]= in_dot[0][i] * in_dot[1][i];
+        dest[i] = galois_single_multiply_gpu_logtable_w8(in_dot[0][i], tmatrix[0]) ^ galois_single_multiply_gpu_logtable_w8(in_dot[1][i], tmatrix[1]); 
     }
 }
 
@@ -580,29 +576,27 @@ __global__ void pieceKernel( gf_w8_log_gpu gf_table, unsigned char gamma, unsign
 __global__ void planeKernel(gf_w8_log_gpu gf_table,  const int k, int nu, const int m, int w, int q, int t, int* matrix, int* decode_matrix, \
     int* dm_ids, int* erasure_loc_data, int erased_data_size, int* erasure_loc_coding, int erased_coding_size, unsigned char** dataPt, int dataSize, int patchSize )
 {
-    //todo: wrong test
-    //set_gf_table( gf_table );
+    set_gf_table( gf_table );
 
     unsigned idx = blockIdx.x*blockDim.x+threadIdx.x;
     unsigned threadsNum = gridDim.x*blockDim.x;
 
-    //todo: wrong test
     //load matrix to gpu shared memery;
-    // extern __shared__ unsigned char s[];
-    // unsigned char *sh_decode_matrix = s;                        //
-    // unsigned char *sh_matrix = (unsigned char*)&sh_decode_matrix[k*k]; //
+    extern __shared__ unsigned char s[];
+    unsigned char *sh_decode_matrix = s;                        //
+    unsigned char *sh_matrix = (unsigned char*)&sh_decode_matrix[k*k]; //
 
 
-    // for( int t = idx; t < k*k; t += threadsNum )
-    // {
-    //     sh_decode_matrix[t] = (unsigned char) decode_matrix[t];
-    // }
-    // //todo: optmize and merge
-    // for( int t = idx; t < k*m; t += threadsNum )
-    // {
-    //     sh_matrix[t] = (unsigned char) matrix[t];
-    // }
-    // __syncthreads();
+    for( int t = idx; t < k*k; t += threadsNum )
+    {
+        sh_decode_matrix[t] = (unsigned char) decode_matrix[t];
+    }
+    //todo: optmize and merge
+    for( int t = idx; t < k*m; t += threadsNum )
+    {
+        sh_matrix[t] = (unsigned char) matrix[t];
+    }
+    __syncthreads();
 
     // //debug new
     // if( idx == threadsNum - 1 )
@@ -624,11 +618,6 @@ __global__ void planeKernel(gf_w8_log_gpu gf_table,  const int k, int nu, const 
     unsigned char * data_now;
     unsigned char * erasure_now;
 
-    if( idx == 0 )
-    {
-        printf( "66666666666666:::: %d, %d, %d, %d\n\n\n", dataSize, threadsNum, dataSize/threadsNum, k*erased_data_size*dataSize/threadsNum + k*erased_coding_size*dataSize/threadsNum );
-    }
-
     for( int i = 0 ; i < k; i ++ )
     {
         data_now = dataPt[dm_ids[i]] + patchSize*2;//B1 is what we want do RS
@@ -642,16 +631,11 @@ __global__ void planeKernel(gf_w8_log_gpu gf_table,  const int k, int nu, const 
                 if( i == 0 )
                 {
                     //todo new: get the fuck shared memory working right
-
-                    //todo: wrong test
-                    //erasure_now[t] = galois_single_multiply_gpu_logtable_w8( data_now[t], (decode_matrix[j*k + i]));
-                    erasure_now[t] = erasure_now[t] * 10;
+                    erasure_now[t] = galois_single_multiply_gpu_logtable_w8( data_now[t], (decode_matrix[j*k + i]));
                 }
                 else
                 {
-                    //todo: wrong test
-                    //erasure_now[t] = erasure_now[t]^galois_single_multiply_gpu_logtable_w8( data_now[t], (decode_matrix[j*k + i]));
-                    erasure_now[t] = erasure_now[t] * 10;
+                    erasure_now[t] = erasure_now[t]^galois_single_multiply_gpu_logtable_w8( data_now[t], (decode_matrix[j*k + i]));
                 }    
             }
 
@@ -672,15 +656,11 @@ __global__ void planeKernel(gf_w8_log_gpu gf_table,  const int k, int nu, const 
                 //todo: ensure that dest[i] is all clean first time;
                 if( i == 0 )
                 {
-                     //todo: wrong test
-                    //erasure_now[t] = galois_single_multiply_gpu_logtable_w8( data_now[t], ((matrix[j*k + i])));
-                    erasure_now[t] = data_now[t] * 10;
+                    erasure_now[t] = galois_single_multiply_gpu_logtable_w8( data_now[t], ((matrix[j*k + i])));
                 }
                 else
                 {
-                    //todo: wrong test
-                    //erasure_now[t] = erasure_now[t]^galois_single_multiply_gpu_logtable_w8( data_now[t], ((matrix[j*k + i])));
-                    erasure_now[t] = data_now[t] * 10;
+                    erasure_now[t] = erasure_now[t]^galois_single_multiply_gpu_logtable_w8( data_now[t], ((matrix[j*k + i])));
                 }      
                 //debug new
                 // if( i == 1 ){
@@ -902,7 +882,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                     //CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax, A2, pieceSize, cudaMemcpyHostToDevice,streams[node_xy]) );
                     
                     //todo new: get right stream
-                    //pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[node_xy]>>>( gf_table,  clmsrProfileP->gamma,planePOnGpuK,node_xy, A1A2_B1, pieceSize, pieceSizeMax, clmsrProfileP->w);
+                    pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[node_xy]>>>( gf_table,  clmsrProfileP->gamma,planePOnGpuK,node_xy, A1A2_B1, pieceSize, pieceSizeMax, clmsrProfileP->w);
                 }
                 else if(aloof_nodes.find(node_sw) != aloof_nodes.end())
                 {
@@ -911,7 +891,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                     //CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*3, B2, pieceSize, cudaMemcpyHostToDevice,streams[node_xy]) );
                     
                     //todo: find a parameter
-                    //pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[node_xy]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,node_xy,A1B2_B1, pieceSize, pieceSizeMax, clmsrProfileP->w);
+                    pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[node_xy]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,node_xy,A1B2_B1, pieceSize, pieceSizeMax, clmsrProfileP->w);
                 }
                 else
                 {
@@ -926,7 +906,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                         
                         
                         //todo: find a parameter
-                        //pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[node_xy]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,node_xy,A1A2_B1, pieceSize, pieceSizeMax, clmsrProfileP->w);
+                        pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[node_xy]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,node_xy,A1A2_B1, pieceSize, pieceSizeMax, clmsrProfileP->w);
                     }
                     else
                     {
@@ -1010,7 +990,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                         
                         A2 = &repaired_data[node_sw][z_sw*sub_chunksize + pieceOffset];
 
-                        //pieceKernelGamma<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[erasure_locations[i]]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],GAMMA_INVERSE, pieceSize, pieceSizeMax, clmsrProfileP->w);
+                        pieceKernelGamma<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[erasure_locations[i]]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],GAMMA_INVERSE, pieceSize, pieceSizeMax, clmsrProfileP->w);
                        
                        
                         //debug
@@ -1031,7 +1011,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                     assert(helper_data.find(node_sw) != helper_data.end());
                     assert(repair_plane_to_ind.find(z_sw) !=  repair_plane_to_ind.end());
 
-                    //pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[erasure_locations[i]]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],B1A2_A1, pieceSize, pieceSizeMax, clmsrProfileP->w);
+                    pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[erasure_locations[i]]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],B1A2_A1, pieceSize, pieceSizeMax, clmsrProfileP->w);
                     //debug
                     //CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
                     //CUDA_CHECK_RETURN( cudaMemcpyAsync( A1, planeOnGpu[erasure_locations[i]], pieceSize, cudaMemcpyDeviceToHost, streams[erasure_locations[i]]) );
@@ -1047,7 +1027,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
                 {
                     A2 = &repaired_data[node_sw][z_sw*sub_chunksize + pieceOffset];
                     
-                    //pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[erasure_locations[i]]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],A1B1_A2, pieceSize, pieceSizeMax, clmsrProfileP->w);
+                    pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[erasure_locations[i]]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],A1B1_A2, pieceSize, pieceSizeMax, clmsrProfileP->w);
                     
                     
                     //debug
@@ -1079,7 +1059,7 @@ int SingleGpuRoute::doRepair( map<int,char*> &repaired_data, set<int> &aloof_nod
     clock_gettime(CLOCK_MONOTONIC, &t2);
     long long deltaT = (t2.tv_sec - t1.tv_sec) * pow(10, 9) + t2.tv_nsec - t1.tv_nsec;
 
-    printf("repair, device, %d, time(s), %lf\n", deviceId, (double)deltaT/pow(10, 9));
+    printf("repair, device, %d, time(s), %lf\n\n", deviceId, (double)deltaT/pow(10, 9));
 
     CUDA_CHECK_RETURN(cudaFreeHost(z_vec));
     CUDA_CHECK_RETURN(cudaFree(decode_matrix_gpu));
@@ -1336,8 +1316,8 @@ int SingleGpuRoute::doDecode \
                                     if(z_vec[y] != x)
                                     {//not a dot
                                         //get_B1_fromA1A2(&B_buf[node_xy][z*ss_size + pieceOffset], A1, A2, ss_size);
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy],                A1, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax, A2, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );
+                                       // CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy],                A1, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );
+                                       // CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax, A2, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );
                                         
 
                                         //todo: find a parameter
@@ -1349,7 +1329,7 @@ int SingleGpuRoute::doDecode \
                                     }
                                     else
                                     { //dot
-                                        CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*2, A1, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );
+                                       // CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*2, A1, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );
                                         //memcpy(&B_buf[node_xy][z*ss_size  + pieceOffset], A1, ss_size);
                                     
                                     
@@ -1469,7 +1449,7 @@ int SingleGpuRoute::doDecode \
                         //char temp1[pieceSize];
                         //char* B2 = &B_buf[node_sw][z_sw*sub_chunksize + pieceOffset];
                         //CUDA_CHECK_RETURN( cudaMemcpyAsync:( temp, planeOnGpu[node_xy] + pieceSizeMax*2, pieceSize, cudaMemcpyDeviceToHost) );
-                        CUDA_CHECK_RETURN( cudaMemcpyAsync( B1, planeOnGpu[node_xy] + pieceSizeMax*2, pieceSize, cudaMemcpyDeviceToHost, streams[node_xy]) );
+                        //CUDA_CHECK_RETURN( cudaMemcpyAsync( B1, planeOnGpu[node_xy] + pieceSizeMax*2, pieceSize, cudaMemcpyDeviceToHost, streams[node_xy]) );
                         //CUDA_CHECK_RETURN( cudaMemcpyAsync( B_buf[0], planeOnGpu[node_xy], 9, cudaMemcpyDeviceToHost) );
                     }
                     //debughouTab(1, "debugging5.5 %d\n",mark++);
@@ -1541,8 +1521,8 @@ int SingleGpuRoute::doDecode \
                             if(is_erasure_type_1(m, i, erasures, z_vec))
                             {
                                 //debughouTab(1,"============A1 from B1 A2\n");
-                                CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*1, A2, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );        
-                                CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*2, B1, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );
+                                //CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*1, A2, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );        
+                                //CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*2, B1, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );
                                 
 
                                 pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[node_xy]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],B1A2_A1, pieceSize, pieceSizeMax, clmsrProfileP->w);
@@ -1552,7 +1532,7 @@ int SingleGpuRoute::doDecode \
                                     
                             
 
-                                CUDA_CHECK_RETURN( cudaMemcpyAsync( A1, planeOnGpu[erasure_locations[i]], pieceSize, cudaMemcpyDeviceToHost, streams[node_xy]) );
+                                //CUDA_CHECK_RETURN( cudaMemcpyAsync( A1, planeOnGpu[erasure_locations[i]], pieceSize, cudaMemcpyDeviceToHost, streams[node_xy]) );
                                 //get_type1_A(A1, &B_buf[node_xy][z*ss_size], A2, ss_size);
                             }
                             else
@@ -1568,16 +1548,15 @@ int SingleGpuRoute::doDecode \
                                 } 
 */
 
-                                CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*2, B1, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );        
-                                CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*3, B2, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );
+                                ///CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*2, B1, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );        
+                                ///CUDA_CHECK_RETURN( cudaMemcpyAsync(planeOnGpu[node_xy] + pieceSizeMax*3, B2, pieceSize, cudaMemcpyHostToDevice, streams[node_xy]) );
                                 
-                                //pieceKernelGamma<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[1]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i],GAMMA_INVERSE, pieceSize, pieceSizeMax, clmsrProfileP->w);
                                 pieceKernel<<<pieceKernelGridSize,pieceKernelBlockSize,0,streams[node_xy]>>>( gf_table, clmsrProfileP->gamma,planePOnGpuK,erasure_locations[i], B1B2_A1, pieceSize, pieceSizeMax, clmsrProfileP->w);            
                                 //cudaDeviceSynchronize();  
                                             //debug
                                 //CUDA_CHECK_RETURN( cudaDeviceSynchronize() );
 
-                                CUDA_CHECK_RETURN( cudaMemcpyAsync( A1, planeOnGpu[erasure_locations[i]], pieceSize, cudaMemcpyDeviceToHost, streams[node_xy]) );
+                                ///CUDA_CHECK_RETURN( cudaMemcpyAsync( A1, planeOnGpu[erasure_locations[i]], pieceSize, cudaMemcpyDeviceToHost, streams[node_xy]) );
                                 //get_A1_fromB1B2(A1, &B_buf[node_xy][z*ss_size], &B_buf[node_sw][z_sw*ss_size], ss_size);
                             }
                         }
@@ -1631,7 +1610,7 @@ int SingleGpuRoute::doDecode \
     clock_gettime(CLOCK_MONOTONIC, &t2);
     long long deltaT = (t2.tv_sec - t1.tv_sec) * pow(10, 9) + t2.tv_nsec - t1.tv_nsec;
 
-    printf("encode/decode, device, %d, time(s), %lf\n", deviceId, (double)deltaT/pow(10, 9));
+    printf("encode/decode, device, %d, time(s), %lf\n\n", deviceId, (double)deltaT/pow(10, 9));
 
     CUDA_CHECK_RETURN(cudaFreeHost(z_vec) );
     CUDA_CHECK_RETURN(cudaFree(decode_matrix_gpu));

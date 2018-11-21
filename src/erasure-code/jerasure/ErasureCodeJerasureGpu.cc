@@ -1603,17 +1603,18 @@ int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaire
     //   //cudaSetDevice( dev_id );
     // }
     int tz = 1;
+    int totalThreads = 1; //clmsrGpu.deviceCount;
    
-    #pragma omp parallel num_threads( clmsrGpu.deviceCount * tz )
+    #pragma omp parallel num_threads( totalThreads * tz )
     {
       int num = omp_get_thread_num();
       //printf("thread num: %d of %d\n", num, omp_get_num_threads());
-      int start = clmsrProfile.subChunkSize/(clmsrGpu.deviceCount * tz) * num;
-      int size = clmsrProfile.subChunkSize/(clmsrGpu.deviceCount * tz);
-      if( num == (clmsrGpu.deviceCount * tz - 1) ){
-        size = clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/( clmsrGpu.deviceCount * tz ) * num;
+      int start = clmsrProfile.subChunkSize/(totalThreads * tz) * num;
+      int size = clmsrProfile.subChunkSize/(totalThreads * tz);
+      if( num == (totalThreads * tz - 1) ){
+        size = clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/( totalThreads * tz ) * num;
       }
-      SingleGpuRoute singleGpuRoute1(num % clmsrGpu.deviceCount, &clmsrGpu, start, size);
+      SingleGpuRoute singleGpuRoute1(num % totalThreads, &clmsrGpu, start, size);
 
       singleGpuRoute1.doRepair( repaired_data, aloof_nodes,
                                         helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrGpu.B_buf);
@@ -1712,15 +1713,17 @@ int ErasureCodeJerasureCLMSR_GPU::decode_layered_gpu(int* erasure_locations, cha
 
   clmsrGpu.pinAllMemoryForDecode( data_ptrs, size, code_ptrs, size );
 
+  
+  int totalThreads = 1; //clmsrGpu.deviceCount;
 
-  #pragma omp parallel num_threads( clmsrGpu.deviceCount )
+  #pragma omp parallel num_threads( totalThreads )
   {
     int num = omp_get_thread_num();
     //printf("decode thread num: %d of %d\n", num, omp_get_num_threads());
-    int start = clmsrProfile.subChunkSize/clmsrGpu.deviceCount * num;
-    int size = clmsrProfile.subChunkSize/clmsrGpu.deviceCount;
-    if( num == (clmsrGpu.deviceCount - 1) ){
-      size = clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/clmsrGpu.deviceCount * num;
+    int start = clmsrProfile.subChunkSize/totalThreads * num;
+    int size = clmsrProfile.subChunkSize/totalThreads;
+    if( num == (totalThreads - 1) ){
+      size = clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/totalThreads * num;
     }
     SingleGpuRoute singleGpuRoute1(num, &clmsrGpu, start, size);
 

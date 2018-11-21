@@ -257,7 +257,9 @@ int ClmsrBench::encode()
 
 
   utime_t end_time = ceph_clock_now();
-  cout << (end_time - begin_time) << "\t" << (max_iterations * (in_size / 1024)) <<"KB" << endl;
+  if( profile["technique"] != "cl_msr_gpu" ){
+    cout << (end_time - begin_time) << "\t" << (max_iterations * (in_size / 1024)) <<"KB" << endl << endl;
+  }
   return 0;
 }
 
@@ -360,7 +362,7 @@ int ClmsrBench::repair_erasures(const map<int,bufferlist> &all_chunks,
       bufferlist tmp = all_chunks.find(*chunk)->second;
       if (!tmp.contents_equal(decoded[*chunk])) {
   cerr << "chunk " << *chunk
-       << " content and recovered content are different" << endl;
+       << " content and recovered content are different" << endl ;
   return -1;
       }
     }
@@ -456,7 +458,10 @@ int ClmsrBench::repair()
     }
   }
   utime_t end_time = ceph_clock_now();
-  cout << (end_time - begin_time) << "\t" << (max_iterations * (in_size / 1024)) << "KB" << endl;
+
+  if( profile["technique"] != "cl_msr_gpu" ){
+    cout << (end_time - begin_time) << "\t" << (max_iterations * (in_size / 1024)) << "KB" << endl << endl;
+  }
   return 0;
 }
 
@@ -557,8 +562,9 @@ int ClmsrBench::decode()
     }
   }
   utime_t end_time = ceph_clock_now();
-  cout << (end_time - begin_time) << "\t" << (max_iterations * (in_size / 1024))  << "KB" << endl;
-
+  if( profile["technique"] != "cl_msr_gpu" ){
+    cout << (end_time - begin_time) << "\t" << (max_iterations * (in_size / 1024))  << "KB" << endl << endl;
+  }
   clock_gettime(CLOCK_MONOTONIC, &t2);
   long long deltaT = (t2.tv_sec - t1.tv_sec) * pow(10, 9) + t2.tv_nsec - t1.tv_nsec;
 
