@@ -104,11 +104,17 @@ set(jerasure_srcs
   jerasure_init.cc)
 add_library(jerasure_objs OBJECT ${jerasure_srcs}) 
 
+set(gf_bridge_srcs
+  gf_bridgeout.c)
+
+add_library(gf_bridge_objs OBJECT ${gf_bridge_srcs}) 
+
 set(ec_jerasure_objs
   $<TARGET_OBJECTS:gf-complete_objs>
   $<TARGET_OBJECTS:jerasure_objs>
   $<TARGET_OBJECTS:jerasure_utils>
   $<TARGET_OBJECTS:erasure_code_objs>
+  $<TARGET_OBJECTS:gf_bridge_objs>
   $<TARGET_OBJECTS:gf_bridge>
   )
 

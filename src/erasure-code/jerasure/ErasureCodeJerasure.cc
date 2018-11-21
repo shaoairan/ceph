@@ -2046,8 +2046,8 @@ void ErasureCodeJerasureCLMSR::gamma_transform(char* dest1, char* dest2, char* c
   dest[0] = dest1;
   dest[1] = dest2;
 
-  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, A, dest, size);
-  jerasure_matrix_dotprod(2, w, &tmatrix[2], NULL, 3, A, dest, size);
+  galios_matrix_dotprod_bridgeOut(2, w, &tmatrix[0], NULL, 2, A, dest, size);
+  galios_matrix_dotprod_bridgeOut(2, w, &tmatrix[2], NULL, 3, A, dest, size);
 
 }
 
@@ -2070,8 +2070,8 @@ void ErasureCodeJerasureCLMSR::gamma_inverse_transform(char* dest1, char* dest2,
   dest[0] = dest1;
   dest[1] = dest2;
 
-  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, A, dest, size);
-  jerasure_matrix_dotprod(2, w, &tmatrix[2], NULL, 3, A, dest, size);
+  galios_matrix_dotprod_bridgeOut(2, w, &tmatrix[0], NULL, 2, A, dest, size);
+  galios_matrix_dotprod_bridgeOut(2, w, &tmatrix[2], NULL, 3, A, dest, size);
 
 }
 
@@ -2087,7 +2087,7 @@ void ErasureCodeJerasureCLMSR::get_type1_A(char* A1, char* B1, char* A2, int siz
   char* dest[1];
   dest[0] = A1;
 
-  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
+  galios_matrix_dotprod_bridgeOut(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
 }
 
 void ErasureCodeJerasureCLMSR::get_type2_A(char* A2, char* B1, char* A1, int size){
@@ -2102,7 +2102,7 @@ void ErasureCodeJerasureCLMSR::get_type2_A(char* A2, char* B1, char* A1, int siz
   char* dest[1];
   dest[0] = A2;
 
-  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
+  galios_matrix_dotprod_bridgeOut(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
 }
 
 void ErasureCodeJerasureCLMSR::get_B1_fromA1B2(char* B1, char* A1, char* B2, int size)
@@ -2120,7 +2120,7 @@ void ErasureCodeJerasureCLMSR::get_B1_fromA1B2(char* B1, char* A1, char* B2, int
   char* dest[1];
   dest[0] = B1;
   
-  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
+  galios_matrix_dotprod_bridgeOut(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
 }
 
 void ErasureCodeJerasureCLMSR::get_B1_fromA1A2(char* B1, char* A1, char* A2, int size)
@@ -2137,7 +2137,7 @@ void ErasureCodeJerasureCLMSR::get_B1_fromA1A2(char* B1, char* A1, char* A2, int
   char* dest[1];
   dest[0] = B1;
   
-  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size); 
+  galios_matrix_dotprod_bridgeOut(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
 }
 
 void ErasureCodeJerasureCLMSR::get_A1_fromB1B2(char* A1, char* B1, char* B2,  int size)
@@ -2164,7 +2164,7 @@ void ErasureCodeJerasureCLMSR::get_A1_fromB1B2(char* A1, char* B1, char* B2,  in
   debughouTab(1, "tmatrix[0]: %d\n", tmatrix[0]);*/
 
 
-  jerasure_matrix_dotprod(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
+  galios_matrix_dotprod_bridgeOut(2, w, &tmatrix[0], NULL, 2, in_dot, dest, size);
 
 }
 
@@ -2228,6 +2228,43 @@ void ErasureCodeJerasureCLMSR::jerasure_matrix_dotprod_substripe(int k, int w, i
       //printf("sptr[0] = %d, dptr[0] = %d\n", sptr[0], dptr[0]);
     }
   }
+  //printf("jerasure_matrix_dotprod_substripe: exiting\n");
+}
+
+void ErasureCodeJerasureCLMSR::jerasure_matrix_dotprod_substripe_bridgeOut(int k, int w, int *matrix_row,
+                          int *src_ids, int dest_id,
+                          char **data_ptrs, char **coding_ptrs, int z, int ss_size)
+{
+  int init;
+  char *dptr, *sptr;
+  int i;
+
+  if (w != 8) {
+    fprintf(stderr,"ERROR: jerasure_matrix_dotprod() called and w is not 1, 8, 16 or 32\n");
+    assert(0);
+  }
+
+  init = 0;
+  //printf("jerasure_matrix_dotprod_substripe: assigning dptr for plane %d ss_size %d\n",z,ss_size);
+  dptr = (dest_id < k) ? &data_ptrs[dest_id][z*ss_size] : &coding_ptrs[dest_id-k][z*ss_size];
+
+  /* Now do the data that needs to be multiplied by a factor */
+
+  for (i = 0; i < k; i++) {
+      //printf("matrix_row[%d] = %d\n",i,matrix_row[i]);
+      if (src_ids == NULL) {
+        sptr = &data_ptrs[i][z*ss_size];
+      } else if (src_ids[i] < k) {
+        sptr = &data_ptrs[src_ids[i]][z*ss_size];
+      } else {
+        sptr = &coding_ptrs[src_ids[i]-k][z*ss_size];
+      }
+
+      galois_w08_region_multiply_bridgeOut(sptr, matrix_row[i], ss_size, dptr, init);
+      //jerasure_total_gf_bytes += ss_size;
+      init = 1;
+      //printf("sptr[0] = %d, dptr[0] = %d\n", sptr[0], dptr[0]);
+    }
   //printf("jerasure_matrix_dotprod_substripe: exiting\n");
 }
 
@@ -2360,7 +2397,7 @@ int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int
 
   for (i = 0; edd > 0 && i < lastdrive; i++) {
     if (erased[i]) {
-      jerasure_matrix_dotprod_substripe(k, w, decoding_matrix+(i*k), dm_ids, i, data_ptrs, coding_ptrs, z, ss_size);
+      jerasure_matrix_dotprod_substripe_bridgeOut(k, w, decoding_matrix+(i*k), dm_ids, i, data_ptrs, coding_ptrs, z, ss_size);
       edd--;
     }
   }
@@ -2372,7 +2409,7 @@ int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int
     for (i = 0; i < k; i++) {
       tmpids[i] = (i < lastdrive) ? i : i+1;
     }
-    jerasure_matrix_dotprod_substripe(k, w, matrix, tmpids, lastdrive, data_ptrs, coding_ptrs, z, ss_size);
+    jerasure_matrix_dotprod_substripe_bridgeOut(k, w, matrix, tmpids, lastdrive, data_ptrs, coding_ptrs, z, ss_size);
     free(tmpids);
   }
 
@@ -2380,7 +2417,7 @@ int ErasureCodeJerasureCLMSR::jerasure_matrix_decode_substripe(int k, int m, int
 
   for (i = 0; i < m; i++) {
     if (erased[k+i]) {
-      jerasure_matrix_dotprod_substripe(k, w, matrix+(i*k), NULL, i+k, data_ptrs, coding_ptrs, z, ss_size);
+      jerasure_matrix_dotprod_substripe_bridgeOut(k, w, matrix+(i*k), NULL, i+k, data_ptrs, coding_ptrs, z, ss_size);
     }
   }
   //print_coding(k,m,alpha,w,ss_size*alpha, data_ptrs, coding_ptrs);

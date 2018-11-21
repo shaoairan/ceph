@@ -1602,17 +1602,18 @@ int ErasureCodeJerasureCLMSR_GPU::repair_lost_chunks_gpu(map<int,char*> &repaire
     //   }
     //   //cudaSetDevice( dev_id );
     // }
-
-    #pragma omp parallel num_threads( clmsrGpu.deviceCount )
+    int tz = 1;
+   
+    #pragma omp parallel num_threads( clmsrGpu.deviceCount * tz )
     {
       int num = omp_get_thread_num();
       //printf("thread num: %d of %d\n", num, omp_get_num_threads());
-      int start = clmsrProfile.subChunkSize/clmsrGpu.deviceCount * num;
-      int size = clmsrProfile.subChunkSize/clmsrGpu.deviceCount;
-      if( num == (clmsrGpu.deviceCount - 1) ){
-        size = clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/clmsrGpu.deviceCount * num;
+      int start = clmsrProfile.subChunkSize/(clmsrGpu.deviceCount * tz) * num;
+      int size = clmsrProfile.subChunkSize/(clmsrGpu.deviceCount * tz);
+      if( num == (clmsrGpu.deviceCount * tz - 1) ){
+        size = clmsrProfile.subChunkSize - clmsrProfile.subChunkSize/( clmsrGpu.deviceCount * tz ) * num;
       }
-      SingleGpuRoute singleGpuRoute1(num, &clmsrGpu, start, size);
+      SingleGpuRoute singleGpuRoute1(num % clmsrGpu.deviceCount, &clmsrGpu, start, size);
 
       singleGpuRoute1.doRepair( repaired_data, aloof_nodes,
                                         helper_data, repair_blocksize, repair_sub_chunks_ind, clmsrGpu.B_buf);

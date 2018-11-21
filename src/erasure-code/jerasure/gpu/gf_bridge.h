@@ -9,4 +9,5 @@ typedef struct{
 
 gfp_w8_log_gpu get_w8_log_tables();
 
+
 #endif

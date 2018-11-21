@@ -8,6 +8,7 @@
         "vector": "cpp",
         "initializer_list": "cpp",
         "ratio": "cpp",
-        "utility": "cpp"
+        "utility": "cpp",
+        "gf_w8.h": "c"
     }
 }

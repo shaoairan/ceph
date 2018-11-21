@@ -22,6 +22,10 @@
 #include "json_spirit/json_spirit.h"
 #include "erasure-code/ErasureCode.h"
 
+extern "C"{
+  #include "gf_bridgeout.h"
+}
+
 #define DEFAULT_RULESET_ROOT "default"
 #define DEFAULT_RULESET_FAILURE_DOMAIN "host"
 #define ERROR_LRC_ARRAY                 -(MAX_ERRNO + 1)
@@ -332,7 +336,6 @@ public:
   char** B_buf;//need to be super careful on how this is used
   //we might have to add mutexes eventually while using this buffer.
 
-
   struct Step {
     Step(string _op, string _type, int _n) :
       op(_op),
@@ -352,6 +355,7 @@ public:
     mds_block(VANDERMONDE_RS),
     B_buf(0)
   {
+    table_p_global = get_w8_log_tables_bridgeOut();
     DEFAULT_K = "6";
     DEFAULT_M = "3";
     DEFAULT_W = "8";
@@ -439,7 +443,12 @@ private:
   int jerasure_matrix_decode_substripe(int k, int m, int w,
                           int *matrix, int row_k_ones, int *erasures,
                           char **data_ptrs, char **coding_ptrs, int z, int ss_size);
+  
   void jerasure_matrix_dotprod_substripe(int k, int w, int *matrix_row,
+                          int *src_ids, int dest_id,
+                          char **data_ptrs, char **coding_ptrs, int z, int ss_size);
+
+  void jerasure_matrix_dotprod_substripe_bridgeOut(int k, int w, int *matrix_row,
                           int *src_ids, int dest_id,
                           char **data_ptrs, char **coding_ptrs, int z, int ss_size);
 };
@@ -569,7 +578,8 @@ private:
 
   int jerasure_matrix_decode_substripe(int k, int m, int w,
                           int *matrix, int row_k_ones, int *erasures,
-                          char **data_ptrs, char **coding_ptrs, int z, int ss_size);
+                          char **data_ptrs, char **coding_ptrs, int z, int ss_size);  
+
   void jerasure_matrix_dotprod_substripe(int k, int w, int *matrix_row,
                           int *src_ids, int dest_id,
                           char **data_ptrs, char **coding_ptrs, int z, int ss_size);

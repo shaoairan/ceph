@@ -6,9 +6,10 @@
 #include <stdlib.h>
 #include "gf_complete.h"
 
-#define MAX_GF_ARRAY_SIZE 64
 
 gf_t * gfp_w8_log = NULL;
+
+
 
 
 
